@@ -101,12 +101,50 @@ if (signedError || !signedData?.signedUrl) {
 }
 
 const publicSupabaseUrl =
-  Deno.env.get('SUPABASE_PUBLIC_URL') ??
-  supabaseUrl
+  Deno.env.get('APP_PUBLIC_SUPABASE_URL')
 
-const signedUrl = signedData.signedUrl.replace(
-  /^http:\/\/kong:8000/,
-  publicSupabaseUrl.replace(/\/$/, ''),
+if (!publicSupabaseUrl) {
+  console.error('APP_PUBLIC_SUPABASE_URL is missing')
+
+  return jsonResponse(
+    { error: 'PUBLIC_URL_NOT_CONFIGURED' },
+    500,
+  )
+}
+
+const internalSignedUrl = new URL(
+  signedData.signedUrl,
+)
+
+const externalBaseUrl = new URL(
+  publicSupabaseUrl,
+)
+
+/*
+ * Mantiene percorso, token e query string generati da Storage,
+ * ma sostituisce l'host Docker interno con quello raggiungibile
+ * dal client Windows.
+ */
+internalSignedUrl.protocol =
+  externalBaseUrl.protocol
+
+internalSignedUrl.host =
+  externalBaseUrl.host
+
+const signedUrl =
+  internalSignedUrl.toString()
+
+console.log(
+  'Signed URL host conversion',
+  {
+    originalHost: new URL(
+      signedData.signedUrl,
+    ).host,
+    publicHost: externalBaseUrl.host,
+    returnedHost: new URL(
+      signedUrl,
+    ).host,
+  },
 )
 
 return jsonResponse({

@@ -52,7 +52,12 @@ try {
   const invokeA = await a.functions.invoke('create-document-download-url', { body:{document_version_id:versionId} })
   ok(invokeA.error,'invoke A')
   if (!invokeA.data?.signed_url) throw new Error('SIGNED_URL_MISSING')
-  const download = await fetch(invokeA.data.signed_url)
+ console.log(
+  'SIGNED URL RESTITUITA:',
+  invokeA.data.signed_url,
+)
+
+    const download = await fetch(invokeA.data.signed_url)
   if (!download.ok) throw new Error(`DOWNLOAD_FAILED:${download.status}`)
   if (!Buffer.from(await download.arrayBuffer()).equals(pdf)) throw new Error('FILE_MISMATCH')
 
