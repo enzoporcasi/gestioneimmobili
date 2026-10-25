@@ -1,0 +1,106 @@
+# ============================================================
+# GestioneImmobili - .gitignore
+# ============================================================
+
+# ------------------------------------------------------------
+# Node.js / npm
+# ------------------------------------------------------------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Cache dei package manager
+.npm/
+.yarn/cache/
+.pnpm-store/
+
+# ------------------------------------------------------------
+# Variabili d'ambiente e segreti
+# ------------------------------------------------------------
+.env
+.env.*
+!.env.example
+
+# Chiavi e certificati
+*.pem
+*.key
+*.p12
+*.pfx
+
+# ------------------------------------------------------------
+# Supabase locale
+# ------------------------------------------------------------
+supabase/.temp/
+supabase/.branches/
+supabase/.env
+supabase/.env.*
+
+# Database e dump locali
+*.db
+*.sqlite
+*.sqlite3
+*.dump
+*.backup
+*.sql.gz
+
+# ------------------------------------------------------------
+# File temporanei usati per estrarre il pacchetto
+# ------------------------------------------------------------
+temp/
+tmp/
+temp-supabase-package/
+GestioneImmobili_Supabase_Migrations_v1.0.zip
+
+# Archivi generici
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+*.rar
+
+# ------------------------------------------------------------
+# Build, cache e copertura test
+# ------------------------------------------------------------
+dist/
+build/
+coverage/
+.cache/
+.next/
+.expo/
+.expo-shared/
+
+# ------------------------------------------------------------
+# Log
+# ------------------------------------------------------------
+*.log
+logs/
+
+# ------------------------------------------------------------
+# Visual Studio Code / IDE
+# ------------------------------------------------------------
+.vscode/
+.idea/
+*.code-workspace
+
+# Se vuoi condividere configurazioni VS Code selezionate:
+# !.vscode/
+# .vscode/*
+# !.vscode/extensions.json
+# !.vscode/settings.json
+
+# ------------------------------------------------------------
+# Sistema operativo
+# ------------------------------------------------------------
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# ------------------------------------------------------------
+# File temporanei editor
+# ------------------------------------------------------------
+*.swp
+*.swo
+*~
