@@ -1,0 +1,9 @@
+create table public.owner_documents(document_id uuid references public.documents(id), owner_id uuid references public.owners(id), link_role text, primary key(document_id,owner_id));
+create table public.property_documents(document_id uuid references public.documents(id), property_id uuid references public.properties(id), link_role text, primary key(document_id,property_id));
+create table public.rentable_space_documents(document_id uuid references public.documents(id), rentable_space_id uuid references public.rentable_spaces(id), link_role text, primary key(document_id,rentable_space_id));
+create table public.tenant_documents(document_id uuid references public.documents(id), tenant_id uuid references public.tenants(id), link_role text, primary key(document_id,tenant_id));
+create table public.contract_documents(document_id uuid references public.documents(id), contract_id uuid references public.contracts(id), link_role text, primary key(document_id,contract_id));
+create table public.rent_installment_documents(document_id uuid references public.documents(id), rent_installment_id uuid references public.rent_installments(id), link_role text, primary key(document_id,rent_installment_id));
+create table public.receipt_documents(document_id uuid references public.documents(id), receipt_id uuid references public.receipts(id), link_role text, primary key(document_id,receipt_id));
+create table public.expense_documents(document_id uuid references public.documents(id), expense_id uuid references public.expenses(id), link_role text, primary key(document_id,expense_id));
+create table public.deadline_documents(document_id uuid references public.documents(id), deadline_id uuid references public.deadlines(id), link_role text, primary key(document_id,deadline_id));
