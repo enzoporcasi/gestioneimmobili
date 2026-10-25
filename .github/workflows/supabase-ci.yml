@@ -1,0 +1,211 @@
+name: Supabase CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Migrations, RLS, RPC, Storage, Edge Functions
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v3
+        with:
+          # Allinea la CI alla versione locale gia verificata.
+          version: 2.122.0
+
+      - name: Start local Supabase stack
+        run: supabase start
+
+      - name: Rebuild database from migrations and seed
+        run: supabase db reset
+
+      - name: Export local Supabase credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # La CLI produce righe KEY="value" adatte a un file env.
+          supabase status -o env > /tmp/supabase-status.env
+
+          api_url=$(sed -n 's/^API_URL="\(.*\)"$/\1/p' /tmp/supabase-status.env)
+          publishable_key=$(sed -n 's/^PUBLISHABLE_KEY="\(.*\)"$/\1/p' /tmp/supabase-status.env)
+          secret_key=$(sed -n 's/^SECRET_KEY="\(.*\)"$/\1/p' /tmp/supabase-status.env)
+
+          # Compatibilita con output CLI legacy.
+          if [ -z "$publishable_key" ]; then
+            publishable_key=$(sed -n 's/^ANON_KEY="\(.*\)"$/\1/p' /tmp/supabase-status.env)
+          fi
+          if [ -z "$secret_key" ]; then
+            secret_key=$(sed -n 's/^SERVICE_ROLE_KEY="\(.*\)"$/\1/p' /tmp/supabase-status.env)
+          fi
+
+          test -n "$api_url"
+          test -n "$publishable_key"
+          test -n "$secret_key"
+
+          echo "SUPABASE_URL=$api_url" >> "$GITHUB_ENV"
+          echo "SUPABASE_PUBLIC_URL=$api_url" >> "$GITHUB_ENV"
+          echo "SUPABASE_ANON_KEY=$publishable_key" >> "$GITHUB_ENV"
+          echo "SUPABASE_SERVICE_ROLE_KEY=$secret_key" >> "$GITHUB_ENV"
+
+          # Evita che eventuali log successivi mostrino le chiavi.
+          echo "::add-mask::$publishable_key"
+          echo "::add-mask::$secret_key"
+
+      - name: Locate healthy Postgres container
+        id: database
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          deadline=$((SECONDS + 90))
+          db_container=""
+
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            db_container=$(docker ps -a \
+              --filter 'name=supabase_db_' \
+              --format '{{.Names}}' | head -n 1)
+
+            if [ -n "$db_container" ]; then
+              running=$(docker inspect -f '{{.State.Running}}' "$db_container")
+              health=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$db_container")
+
+              if [ "$running" = 'true' ] && { [ "$health" = 'healthy' ] || [ "$health" = 'none' ]; }; then
+                echo "name=$db_container" >> "$GITHUB_OUTPUT"
+                echo "Postgres container ready: $db_container ($health)"
+                exit 0
+              fi
+            fi
+
+            sleep 1
+          done
+
+          docker ps -a
+          echo 'Postgres container did not become ready' >&2
+          exit 1
+
+      - name: Run SQL regression tests
+        shell: bash
+        env:
+          DB_CONTAINER: ${{ steps.database.outputs.name }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          tests=(supabase/tests/*.sql)
+          if [ "${#tests[@]}" -eq 0 ]; then
+            echo 'No SQL tests found' >&2
+            exit 1
+          fi
+
+          for test_file in "${tests[@]}"; do
+            echo "::group::SQL test $(basename "$test_file")"
+            docker exec -i "$DB_CONTAINER" \
+              psql -v ON_ERROR_STOP=1 -U postgres -d postgres \
+              < "$test_file"
+            echo "::endgroup::"
+          done
+
+      - name: Create Edge Function CI environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p supabase/functions
+          printf 'APP_PUBLIC_SUPABASE_URL=%s\n' "$SUPABASE_URL" \
+            > supabase/functions/.env.ci
+
+      - name: Start document download Edge Function
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          supabase functions serve create-document-download-url \
+            --env-file supabase/functions/.env.ci \
+            > /tmp/edge-function.log 2>&1 &
+
+          echo $! > /tmp/edge-function.pid
+
+          deadline=$((SECONDS + 60))
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            if grep -q 'Serving functions on' /tmp/edge-function.log; then
+              cat /tmp/edge-function.log
+              exit 0
+            fi
+
+            if ! kill -0 "$(cat /tmp/edge-function.pid)" 2>/dev/null; then
+              cat /tmp/edge-function.log
+              echo 'Edge Function process exited early' >&2
+              exit 1
+            fi
+
+            sleep 1
+          done
+
+          cat /tmp/edge-function.log
+          echo 'Timed out waiting for Edge Function' >&2
+          exit 1
+
+      - name: Run Node.js E2E tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          tests=(supabase/tests/*.mjs)
+          if [ "${#tests[@]}" -eq 0 ]; then
+            echo 'No Node.js E2E tests found' >&2
+            exit 1
+          fi
+
+          for test_file in "${tests[@]}"; do
+            echo "::group::Node test $(basename "$test_file")"
+            node "$test_file"
+            echo "::endgroup::"
+          done
+
+      - name: Show diagnostics on failure
+        if: failure()
+        shell: bash
+        run: |
+          echo '===== Supabase status ====='
+          supabase status || true
+          echo '===== Docker containers ====='
+          docker ps -a || true
+          echo '===== Edge Function log ====='
+          cat /tmp/edge-function.log 2>/dev/null || true
+
+      - name: Stop local services
+        if: always()
+        shell: bash
+        run: |
+          if [ -f /tmp/edge-function.pid ]; then
+            kill "$(cat /tmp/edge-function.pid)" 2>/dev/null || true
+          fi
+          rm -f supabase/functions/.env.ci
+          supabase stop --no-backup || true
