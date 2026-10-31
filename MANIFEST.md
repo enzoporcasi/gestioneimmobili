@@ -1,17 +1,10 @@
 # Manifest
 
-## Migrations implemented
-1. Extensions/common functions and schema bootstrap
-2. Profiles/privacy/access model
-3. Properties, contracts, tenants, terms and ownerships
-4. Economics: installments, payments, expenses and settlement
-5. Documents, deadlines, auditing and idempotency requirements
-6. Document-to-entity bridges
-7. Security helpers and RBAC access checks
-8. Billing views and due-installment generator
-9. Core RPC for installment payment, partial payment and contract lifecycle logic
-10. RLS enablement and table grants
-11. Storage bucket and reserved upload policy
+## Migration set
+
+The current set is the ordered list in `supabase/migrations/`: base schema (001-011), followed by six timestamped migrations for partial payments, contract termination, expense creation, document workflow/RLS, remaining-table RLS enablement and a digest/search-path correction.
+
+The exact file names and an as-built function inventory are maintained in `README.md` and `GestioneImmobili_Modello_Dati_Fisico_Supabase_v1.2.md`.
 
 ## Patch set included after base release
 - `20261025000100_record_partial_installment_payment.sql`
@@ -22,20 +15,19 @@
 - `20261025125839_fix_terminate_contract_digest.sql`
 
 ## Functional coverage
-- schema core for owners, properties, contracts and billing
-- multi-role access control and security helpers
-- automated generation of rent installments
-- payment recording, allocation and residual tracking
-- contract termination handling with idempotency and audit trail
-- expense creation with allocations and settlement logic
-- document management and reserved upload workflow for private storage
-- SQL smoke tests and end-to-end validation scripts
+- Core schema for owners, properties, contracts, billing, expenses, documents and privacy/audit metadata.
+- Security helpers and role-scoped access checks; explicit RLS policies cover only a subset of enabled tables.
+- Progressive rent installment generation, balance view, full/partial payment functions.
+- Contract termination and expense creation with allocations, including the optional first payment.
+- Document reservation/finalization, scan-result transition and authorized signed-download flow; malware scanning itself is external.
+- SQL and Node end-to-end test scripts are present; their presence does not assert that they passed in every environment.
+- No mobile frontend, notification scheduler, push/e-mail delivery service or full set of target RPCs is included.
 
-## Test status
-- Executable SQL smoke tests present: schema, due-date, constraints, billing, payment and document checks.
-- RLS isolation tests included.
-- Storage upload/download tests included via Node scripts.
-- The implementation is validated at code-level and local-db level, but not yet production-certified.
+## Test assets
+- SQL smoke/integration tests cover schema, due dates, constraints, RLS isolation, billing, payments, contract termination, expenses and document security.
+- Node scripts cover Storage upload and document-download URL flows.
+- `scripts/run-all-tests.ps1` runs the migrations/reset and SQL/Node suites against local Supabase.
+- Test execution status is not inferred from the presence of these files; use the runner and record its actual result.
 
 ## Scope note
-This project is now an implementation snapshot of the GestioneImmobili data layer and business logic in Supabase SQL. It includes the main MVP and advanced operational flows expected by the current codebase, but it still requires environment-specific verification, production hardening, and final performance/security review before a live deployment.
+This project is an implementation snapshot of the GestioneImmobili Supabase data layer. The functional/physical/RPC documents include planned behavior beyond the current implementation; consult their as-built sections for the implemented subset. Environment-specific verification, missing workflows, production hardening, and final performance/security review remain before live deployment.

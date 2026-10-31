@@ -7,6 +7,8 @@
 **Lingua UI MVP:** `it-IT`  
 **Valuta MVP:** `EUR`
 
+**Stato:** specifica fisica con sezioni progettuali storiche e appendice as-built aggiornata al 2026-10-31. Per il database effettivamente presente prevale la sezione 37; le policy progettuali non sono da intendere come policy già implementate.
+
 ---
 
 ## 1. Scelte architetturali fisiche
@@ -360,7 +362,7 @@ Indici aggiuntivi saranno derivati dalle query reali e dalle verifiche di perfor
 
 Le viste esposte alla client app devono rispettare RLS o essere sostituite da funzioni/RPC progettate specificamente per non bypassare il perimetro.
 
-## 17. Migrations Supabase previste
+## 17. Piano migration progettuale (superato)
 
 ```text
 001_extensions.sql
@@ -380,18 +382,16 @@ Le viste esposte alla client app devono rispettare RLS o essere sostituite da fu
 015_seed_reference_data.sql
 ```
 
-La suddivisione è progettuale; i file SQL verranno prodotti solo dopo revisione di questo modello.
+Questo piano era una proposta precedente e non corrisponde ai file oggi presenti. L'ordine effettivo delle migration è riportato nella sezione 37.
 
-## 18. Decisioni aperte prima del DDL
+## 18. Decisioni operative e verifiche prima della produzione
 
-- Estensioni effettivamente abilitate (`citext`, eventualmente `btree_gist`).
-- Trigger vs funzioni transazionali RPC per i vincoli complessi.
-- Dettaglio RLS per ogni operazione SELECT/INSERT/UPDATE/DELETE.
-- Strategia di scansione malware dei documenti.
-- Rolling horizon dei Canoni.
-- Politiche di retention/audit.
-- Ricerca globale: Postgres full-text iniziale oppure servizio dedicato in futuro.
-- MFA obbligatoria o opzionale per ruoli sensibili; Supabase supporta flussi MFA e AAL nel JWT.
+- Verificare migration e test su un progetto Supabase locale/remoto compatibile.
+- Completare il controllo RLS per tabelle abilitate ma prive di policy esplicite; RLS abilitata non significa che la matrice progettuale sia stata realizzata.
+- Integrare lo scanner malware e l'eventuale job che invoca `complete_document_scan`.
+- Definire scheduling del generatore, notifiche, retention/audit e gestione degli oggetti Storage orfani.
+- Completare test di concorrenza, integrità cross-table, performance e hardening prima della produzione.
+- Definire eventuali evoluzioni non presenti, tra cui preferenze notifiche, template e MFA applicativa.
 
 ## 19. Criteri di accettazione del modello fisico
 
@@ -408,17 +408,15 @@ Prima di generare il DDL, il modello deve superare test progettuali per:
 - consensi versionati;
 - RLS e Storage RLS.
 
-## 20. Stato progettuale
+## 20. Stato dell'artefatto
 
 | Artefatto | Stato |
 |---|---|
-| Requisiti Funzionali v1.2 | Congelati |
-| Modello Dati Logico v1.2 | Consolidato |
-| ERD v1.1 | Validato |
-| **Modello Dati Fisico Supabase v1.1** | **Corretto e validato per il DDL** |
-| Migration SQL | Passo successivo dopo review |
-| Architettura Tecnica | Da produrre |
-| Specifica API/RPC | Da produrre |
+| Requisiti Funzionali | Baseline di prodotto; diversi flussi non sono implementati |
+| Modello Dati Logico / ERD | Modelli di dominio con scope limitato |
+| **Migration SQL Supabase** | Presenti nel repository, non equivalgono a certificazione di produzione |
+| Specifica RPC/RLS | Definisce anche target non ancora implementati; appendice as-built necessaria |
+| Client mobile / UI | Non presente in questo repository |
 
 
 ---
@@ -968,7 +966,7 @@ Il meccanismo concreto di pianificazione sarà scelto nell'architettura tecnica.
 - `due_day` 29/30/31 su mesi più corti;
 - assenza prorata automatica nel MVP.
 
-## 35. Aggiornamento piano migration
+## 35. Aggiornamento piano migration (progettuale, superato)
 
 Aggiungere/aggiornare:
 
@@ -991,4 +989,56 @@ Aggiungere/aggiornare:
 
 ## 36. Esito v1.2
 
-Il Modello Dati Fisico Supabase v1.2 recepisce la generazione progressiva dei Canoni in base alla periodicità e alla prima mensilità/primo periodo contrattuale. La precedente decisione di generare tutte le rate future è revocata.
+La specifica v1.2 recepisce la generazione progressiva dei Canoni. La corrispondenza con il DDL corrente e le differenze implementative sono descritte nella sezione 37.
+
+## 37. Allineamento as-built alle migration (2026-10-31)
+
+Questa sezione prevale sulle sezioni progettuali precedenti quando descrive il database realmente presente.
+
+### 37.1 Sequenza delle migration presenti
+
+1. `001_extensions.sql`
+2. `002_profiles_privacy_access.sql`
+3. `003_properties_contracts.sql`
+4. `004_economics.sql`
+5. `005_documents_deadlines_audit.sql`
+6. `006_document_bridges.sql`
+7. `007_security_helpers.sql`
+8. `008_views_and_billing.sql`
+9. `009_rpc_core.sql`
+10. `010_rls.sql`
+11. `011_storage.sql`
+12. `20261025000100_record_partial_installment_payment.sql`
+13. `20261025000200_terminate_contract.sql`
+14. `20261025000300_create_expense_with_allocations.sql`
+15. `20261025000400_document_rpcs_and_rls.sql`
+16. `20261025091342_enable_rls_remaining_tables.sql`
+17. `20261025125839_fix_terminate_contract_digest.sql`
+
+Le migration vanno applicate in ordine lessicografico tramite Supabase CLI. Le migration timestampate sono già incluse nel set, non un backlog futuro.
+
+### 37.2 Funzioni e view presenti
+
+- Funzioni di supporto: `set_updated_at`, `calculate_due_date`, `security.role_rank`, `security.can_access_owner`, `security.can_access_property`, `security.can_access_contract`, `security.can_access_installment`, `security.can_access_expense`, `security.can_access_document`.
+- Billing: `v_rent_installment_balance`, `generate_due_installments`.
+- Pagamenti: `mark_installment_paid`, `record_partial_installment_payment`.
+- Contratti: `terminate_contract`.
+- Spese: `create_expense_with_allocations`.
+- Documenti: `reserve_document_upload`, `finalize_document_upload`, `complete_document_scan`, `authorize_document_download`; la Edge Function `create-document-download-url` crea la signed URL dopo l'autorizzazione.
+
+Non risultano implementate nel set di migration altre RPC elencate nella specifica target, incluse gestione inviti/accessi completa, attivazione/variazione contratti, perdita canone, ciclo completo pagamenti/riallocazione/annullamento spese e gestione completa scadenze/privacy.
+
+### 37.3 Differenze fisiche da tenere presenti
+
+- `profiles.primary_email` non è presente; l'identità/e-mail è gestita da Supabase Auth.
+- `document_versions` usa `reserved_by_user_id`, `reserved_at`, `finalized_at`, `uploaded_at`, `upload_status` e `malware_scan_status`; non ha `uploaded_by_user_id`.
+- Non sono presenti `user_notification_preferences`, `message_templates` o `message_template_translations`.
+- Il database abilita RLS sulle tabelle applicative tramite le migration base e successive, ma le policy esplicite coprono solo una parte delle tabelle. Tabelle senza policy applicabile restano non leggibili/modificabili dal client autenticato; non assumere che la matrice target della sezione 22 sia interamente operativa.
+- Le migration non applicano `FORCE ROW LEVEL SECURITY`; la protezione effettiva dipende inoltre dai privilegi del ruolo database e dai percorsi server-side.
+- La policy Storage implementata autorizza l'`INSERT` dell'oggetto prenotato dall'utente registrato nella versione. Il `SELECT` diretto non è previsto: il download usa la Edge Function e la RPC autorizzativa.
+- Il bucket `property-documents` è privato, limita upload a PDF/JPEG/PNG e imposta un massimo di 20 MiB nelle migration. La scansione automatica non è fornita dal DDL.
+- Il modello contiene regole cross-table progettuali che non sono tutte enforce-ate da FK/constraint nel database: verificare specificamente quote al 100%, overlap, coerenza delle allocazioni e limiti di accesso.
+
+### 37.4 Stato di validazione
+
+Sono presenti test SQL ed e2e; non si deve dedurre dalla loro presenza che siano stati tutti eseguiti con esito positivo. La produzione richiede validazione sull'ambiente target, integrazione dei componenti esterni e revisione finale di sicurezza/prestazioni.

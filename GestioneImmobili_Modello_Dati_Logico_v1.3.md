@@ -5,6 +5,8 @@
 **Derivato da:** Requisiti Funzionali v1.3  
 **Allineato con:** ERD v1.2
 
+**Stato:** modello logico con appendice di confronto as-built al 2026-10-31. Il modello descrive il dominio; non tutte le entità o operazioni funzionali sono già implementate.
+
 ## 1. Variazione rispetto alla v1.2
 La generazione integrale dei Canoni all'attivazione è sostituita dalla generazione progressiva per periodo di competenza.
 
@@ -93,4 +95,28 @@ Codici tecnici in inglese. UI italiana:
 - `first_billing_period_start` → Primo periodo di competenza, negli altri casi.
 
 ## 7. Esito
-Il Modello Dati Logico v1.3 recepisce la generazione progressiva e resta coerente con Canoni/Incassi, variazioni contrattuali e cessazione.
+Il Modello Dati Logico v1.3 recepisce la generazione progressiva. La corrispondenza col database implementato e le differenze note sono riportate nell'appendice seguente.
+
+## 8. Confronto con lo schema implementato (2026-10-31)
+
+Le migration Supabase sono la fonte autorevole per lo schema fisico. Il modello logico resta valido come modello di dominio, ma non deve essere interpretato come inventario delle funzionalità già esposte.
+
+| Dominio | Oggetti implementati | Stato rispetto al modello |
+|---|---|---|
+| Identità e accesso | `profiles`, `owners`, `invitations`, `invitation_owners`, `user_owner_accesses`, documenti/accettazioni legali, richieste interessato | Schema presente; helper e policy soltanto su una parte dei flussi. |
+| Patrimonio e locazione | `properties`, `property_ownerships`, `rentable_spaces`, `tenants`, `contracts`, `contract_rentable_spaces`, `contract_tenants`, `contract_terms`, `contract_changes` | Schema presente; diversi vincoli di dominio e operazioni RPC del modello restano da realizzare. |
+| Canoni e incassi | `rent_installments`, `rent_installment_components`, `receipts`, `receipt_allocations`, `billing_generation_runs` | Schema, view saldo e funzioni per generazione e registrazione di pagamenti presenti. |
+| Spese e conguagli | `expenses`, `expense_allocations`, `expense_payments`, `owner_settlement_items` | Schema presente; RPC presente per creazione con allocazioni e pagamento iniziale, non per l'intero ciclo spesa. |
+| Documenti | `documents`, `document_versions` e bridge tipizzati verso le entità | Schema e flusso upload/download parziale presenti; scansione e notifiche operative dipendono da componenti esterni. |
+| Scadenze e audit | `deadlines`, `notification_rules`, `notification_deliveries`, `audit_events`, `security_events`, `idempotency_keys` | Schema presente; scheduler/notifiche e tutte le policy operative non sono inclusi. |
+
+### Regole implementate rilevanti
+- `contract_terms.first_billing_period_start` è il punto di partenza del generatore progressivo.
+- `rent_installments.status` persiste gli stati `CREATED`, `PAID`, `LOST`, `NOT_DUE`, `CANCELLED`; `PARTIAL`, `OVERDUE` e saldo sono calcolati dalla view `v_rent_installment_balance`.
+- Gli importi sono rappresentati fisicamente come `numeric(14,2)` e la valuta è limitata a EUR; evitare il tipo generico `money` nella descrizione del modello logico.
+- La cessazione anticipata conserva le rate già maturate e può marcare `NOT_DUE` quelle future già create; nuove rate successive alla data effettiva non vengono generate.
+- Documenti e versioni hanno stati di prenotazione/finalizzazione/scansione; l'esito `CLEAN` rende la versione disponibile, ma il servizio antivirus è esterno.
+- Le tabelle per inviti, privacy e notifiche descrivono dati persistiti; la loro presenza non implica che i flussi applicativi completi siano disponibili.
+
+### Relazioni e integrità da non presumere
+La presenza di FK e vincoli locali non equivale all'implementazione di ogni regola cross-table del modello. In particolare, controllo completo della somma quote, sovrapposizione delle locazioni, coerenza di tutte le allocazioni, ciclo di vita completo dei contratti e gestione completa di inviti/notifiche devono essere verificati o completati nelle migration/RPC e nei test.

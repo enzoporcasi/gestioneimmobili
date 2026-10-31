@@ -5,6 +5,8 @@
 **Derivato da:** Requisiti Funzionali v1.3, Modello Logico v1.3, ERD v1.2, Modello Fisico Supabase v1.2  
 **Target:** Supabase Auth, Database, RPC e Storage
 
+**Stato:** specifica target più ampia delle RPC/policy attualmente implementate. La sezione 17 descrive l'as-built al 2026-10-31 e prevale per le affermazioni sul comportamento disponibile.
+
 ---
 
 ## 1. Principi
@@ -49,13 +51,13 @@ Se `SECURITY DEFINER`: owner tecnico controllato, `search_path` fisso, oggetti s
 
 ## 5. Catalogo RPC
 
-### Accessi
+### Accessi (target)
 - `create_owner_with_access`: crea Owner e Accesso Administrator all'attore; idempotente; audit.
 - `create_invitation`: Administrator; crea Invito e perimetro; vieta Owner fuori scope.
 - `accept_invitation`: valida token/e-mail/stato; crea Accessi senza duplicati.
 - `revoke_user_owner_access`: chiude l'accesso; preserva almeno un Administrator se necessario.
 
-### Immobili e Quote
+### Immobili e Quote (target)
 - `create_property_with_ownership`: Manager; crea Property e assetto completo al 100%.
 - `replace_property_ownership_structure`: lock Property; chiude vecchio assetto e inserisce il nuovo nella stessa transazione.
 - `archive_property`: archiviazione logica, nessuna cancellazione storica.
@@ -85,7 +87,7 @@ Se `SECURITY DEFINER`: owner tecnico controllato, `search_path` fisso, oggetti s
 - `create_document_download_url`: autorizza e genera signed URL breve.
 - `archive_document`: archiviazione logica.
 
-### Privacy
+### Privacy (target)
 - `accept_legal_document_version`: append-only e idempotente.
 - `create_data_subject_request`: richiesta propria; esecuzione backend auditata.
 
@@ -305,7 +307,47 @@ Casi 28/29 febbraio, anni 2000/2100, aprile 30, mesi 31.
 - Documenti: reserve/available/archive/malware.
 - Privacy: accettazione versione/richiesta interessato.
 
-## 16. Esito
-La v1.1 rende espliciti mese corto e anni bisestili, atomicità/rollback/locking delle RPC e performance/indicizzazione delle policy RLS.
+## 16. Esito della specifica
+La v1.1 definisce il comportamento target per RPC, RLS, Storage, atomicità e test. Non è un inventario delle funzioni o policy già consegnate; la sezione 17 fornisce il confronto con le migration correnti.
 
-**GestioneImmobili_RPC_e_RLS_v1.1 è pronta come input delle migration e dei test SQL Supabase.**
+## 17. Stato implementato nel repository (2026-10-31)
+
+### 17.1 RPC e helper presenti
+
+| Funzione | Stato / note |
+|---|---|
+| `calculate_due_date` | Implementata; gestisce il limite del giorno nei mesi corti. |
+| `security.role_rank`, `can_access_owner`, `can_access_property`, `can_access_contract`, `can_access_installment`, `can_access_expense` | Implementati in `security`. |
+| `generate_due_installments` | Implementata per generazione progressiva; crea un record `billing_generation_runs`. |
+| `mark_installment_paid` | Implementata; registra un incasso per il residuo e lo alloca alla rata. |
+| `record_partial_installment_payment` | Implementata; valida l'importo rispetto al residuo e registra incasso/allocazione/audit in transazione. |
+| `terminate_contract` | Implementata; chiude contratto/locatari e marca `NOT_DUE` le rate future già generate secondo le regole SQL. |
+| `create_expense_with_allocations` | Implementata per creazione spesa, ripartizioni e pagamento iniziale opzionale. |
+| `security.can_access_document` | Implementata usando collegamenti documentali supportati. |
+| `reserve_document_upload`, `finalize_document_upload` | Implementate per prenotazione e finalizzazione upload. |
+| `complete_document_scan` | Implementata come passaggio backend; non eseguibile dal ruolo `authenticated`. Il servizio di scansione effettivo è esterno. |
+| `authorize_document_download` | Implementata; autorizza una versione `AVAILABLE` e `CLEAN` e restituisce i metadati per la signed URL. |
+| Edge Function `create-document-download-url` | Implementata; verifica il chiamante, invoca la RPC autorizzativa e usa la chiave privilegiata solo per creare la signed URL. |
+
+Non risultano presenti RPC per `create_owner_with_access`, gestione inviti/accessi, creazione proprietà con quote, attivazione/variazione/estensione contratto, `mark_installment_lost`, gestione completa dei pagamenti/ripartizioni/annullamento spese, archiviazione documento, accettazioni legali o workflow DSR.
+
+### 17.2 RLS e GRANT effettivi
+
+- RLS è abilitata sulle tabelle applicative tramite le migration base, documentali e successive.
+- Le policy esplicite non coprono tutte le tabelle abilitate: tabelle senza policy permissiva restano inaccessibili tramite le richieste client soggette a RLS. L'abilitazione RLS non equivale alla matrice target della sezione 9.
+- Le policy di lettura base riguardano profilo proprio, Proprietari, Immobili, quote, porzioni, Contratti, Canoni, spese, accettazioni legali proprie e richieste interessato proprie. Esistono inoltre policy SELECT per documenti/versioni e relativi bridge supportati.
+- L'aggiornamento diretto autenticato è limitato ai campi profilo indicati nei GRANT. Le operazioni di business mutanti disponibili passano dalle RPC con GRANT esplicito.
+- La migration di Storage crea un bucket privato e una policy `INSERT` per oggetti che corrispondono a una versione `RESERVED` prenotata dall'utente autenticato. Non è prevista una policy di SELECT Storage diretta; il download passa dalla Edge Function.
+- Le funzioni elencate nella specifica target ma non presenti nelle migration non devono essere considerate callable né sicure per uso applicativo.
+
+### 17.3 Differenze rispetto alla specifica target
+
+- Gli output RPC correnti non seguono uniformemente l'involucro `success/data/correlation_id`: consultare la definizione SQL per il contratto reale di ciascuna funzione.
+- `mark_installment_paid` e `record_partial_installment_payment` non accettano una idempotency key; non promettere replay idempotente di queste operazioni.
+- `terminate_contract` e `create_expense_with_allocations` supportano idempotenza tramite chiave opzionale; il comportamento effettivo è definito nelle rispettive migration.
+- La matrice RLS della sezione 9 è il target desiderato, non la descrizione delle policy effettivamente presenti.
+- I casi di concorrenza, rollback, autorizzazione Storage e performance elencati nella sezione 14 sono criteri di verifica; la presenza dei test nel repository non attesta che ogni caso sia già validato nell'ambiente target.
+
+### 17.4 Fonte autorevole e validazione
+
+Per la firma, i privilegi e il comportamento effettivi fare riferimento alle migration in `supabase/migrations/` e alla Edge Function in `supabase/functions/create-document-download-url/`. La specifica target richiede completamento e test delle funzioni/policy mancanti prima di poter dichiarare coperto l'intero perimetro.

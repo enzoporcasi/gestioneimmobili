@@ -3,7 +3,9 @@
 ## Documento dei Requisiti Funzionali
 
 **Versione:** 1.3  
-**Stato:** Baseline iniziale per progettazione
+**Stato:** Baseline funzionale; non rappresenta da sola una dichiarazione di funzionalità già rilasciate.
+
+> **Allineamento al codice (2026-10-31):** questo documento descrive il perimetro funzionale desiderato, inclusi flussi UI e componenti esterni. Lo stato effettivamente implementato nel repository è riepilogato nella sezione 22; tale sezione prevale quando distingue requisiti, schema presente e funzionalità operative. Il repository contiene il livello dati Supabase, non l'app mobile descritta nei wireframe.
 
 ---
 
@@ -73,7 +75,8 @@ Ruolo e perimetro sono separati: il ruolo stabilisce **cosa** l'utente può fare
 **RF-CON-07 - Contratti contemporanei.** Lo stesso immobile può avere più contratti attivi contemporaneamente se riferiti a porzioni locabili differenti.
 
 ## 8. Canoni, rate e incassi
-**RF-CAN-01 - Generazione automatica rate.** All'attivazione del contratto vengono generate le rate in base a decorrenza, termine, importo, periodicità, giorno pagamento e variazioni programmate.  
+**RF-CAN-01 - Generazione automatica rate.** Le rate vengono generate progressivamente per i periodi maturati in base a decorrenza, termine, importo, periodicità, giorno di pagamento e variazioni programmate; non vengono generate tutte all'attivazione.
+
 **RF-CAN-02 - Stati canone/rata.** Ogni canone/rata deve avere uno stato operativo tra: Creato, Pagato, Parziale, In ritardo, Perso. Lo stato Parziale deve esporre importo incassato e residuo. Lo stato In ritardo identifica un credito ancora aperto oltre la scadenza; Perso identifica un canone definitivamente considerato non recuperabile/non più da incassare.  
 **RF-CAN-03 - Pagamenti multipli.** Una rata può essere coperta da più incassi con residuo sempre disponibile.  
 **RF-CAN-04 - Pagamento cumulativo.** Un incasso può essere imputato a più rate con tracciabilità dell'importo attribuito.  
@@ -129,7 +132,7 @@ Esempi: Immobile (visura, planimetria, APE, assicurazione); Locatario (carta d'i
 ## 14. Regole di business principali
 - **RB-01:** un utente vede un immobile solo se gestisce almeno uno dei Proprietari associati.
 - **RB-02:** le percentuali di proprietà appartengono alla relazione Proprietario-Immobile e sono storicizzabili.
-- **RB-03:** l'attivazione di un contratto genera le rate previste.
+- **RB-03:** l'attivazione di un contratto non genera tutte le rate future; la generazione è progressiva secondo le regole RF-CAN-15–RF-CAN-19.
 - **RB-04:** le rate consolidate non sono modificate retroattivamente da successive variazioni di canone.
 - **RB-05:** il residuo di una rata è l'importo dovuto meno gli incassi imputati.
 - **RB-06:** entrate e uscite sono ripartite di default secondo le quote valide, salvo eccezione.
@@ -2781,3 +2784,26 @@ Per periodicità non mensile l'etichetta diventa **Primo periodo di competenza**
 
 ### Decisione MVP sul prorata
 La v1.3 non calcola automaticamente il prorata per periodi parziali. Il primo periodo è scelto esplicitamente dall'Utente e deve iniziare in una data coerente con la periodicità. Il prorata potrà essere introdotto come evoluzione con regole dedicate.
+
+---
+
+## 22. Stato di implementazione nel repository (2026-10-31)
+
+Questa sezione fotografa il codice presente, non certifica il completamento funzionale, la validazione in produzione o la presenza di un client UI. “Schema presente” indica che esistono tabelle/migrazioni; non implica che ogni flusso descritto sia disponibile all'utente.
+
+| Area | Stato nel repository | Confine attuale |
+|---|---|---|
+| Profili, Proprietari, accessi e inviti | Schema presente; helper e policy parziali | Non sono presenti RPC applicative per creare/accettare/revocare inviti o amministrare l'intero perimetro. |
+| Immobili, quote, porzioni, Locatari e Contratti | Schema presente | Non risultano implementati tutti i flussi CRUD, attivazione, variazione termini, controllo completo di quote/occupazioni descritti nei requisiti. |
+| Canoni e Incassi | Implementazione database parziale/operativa | Generazione progressiva, vista saldo, registrazione pagamento totale e parziale e cessazione contratto hanno funzioni SQL; dashboard e UI non sono incluse. |
+| Spese e conguagli | Implementazione parziale | Esiste `create_expense_with_allocations`, con modalità quote/manuale e pagamento iniziale; non risultano le RPC generali di pagamento successivo, riallocazione e annullamento. |
+| Documenti | Flusso database/API parziale | Prenotazione, finalizzazione, registrazione esito scansione e autorizzazione download sono presenti; la scansione malware effettiva è esterna. |
+| Scadenze e notifiche | Schema presente | Non sono implementati nel repository scheduler, invio push/e-mail, template, preferenze utente e motore di consegna. |
+| Privacy e consensi | Schema presente | Sono presenti tabelle per accettazioni e richieste interessato; non è presente l'intero workflow RPC di gestione/esecuzione. |
+| Dashboard, report ed esportazioni | Requisiti progettuali | Non risultano viste/RPC applicative per dashboard e non è presente un frontend o un'esportazione CSV/Excel. |
+| App mobile e wireframe | Specifica UX | Non fanno parte del codice presente. |
+
+### Regole di lettura
+- I wireframe, i casi d'uso e le feature senza implementazione indicata sopra restano requisiti di prodotto, non funzionalità già consegnate.
+- Le migration SQL e gli script di test sono presenti; la loro presenza non dimostra che l'intera suite sia stata eseguita con esito positivo nell'ambiente corrente.
+- Per il comportamento implementato del billing fare riferimento alle migration e alla relativa documentazione tecnica; per le funzionalità non coperte occorre completare design, RPC, RLS e test prima di dichiararle disponibili.
