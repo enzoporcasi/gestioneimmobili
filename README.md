@@ -14,9 +14,10 @@ Il repository include:
 - RLS abilitata sulle tabelle applicative, con policy esplicite ancora parziali;
 - bucket Storage dedicato ai documenti immobiliari con upload riservato;
 - frontend web React/TypeScript per autenticazione e gestione immobili;
+- shell Android Capacitor che riutilizza il frontend React e i flussi Supabase;
 - suite di test SQL e script e2e per validazioni di schema, billing, immobili e storage.
 
-Questa configurazione è da intendere come implementation snapshot di progetto, non come certificazione di produzione. La presenza di migration e test non significa che l'intera suite sia stata eseguita con esito positivo. Il repository non contiene il client mobile descritto dai requisiti.
+Questa configurazione è da intendere come implementation snapshot di progetto, non come certificazione di produzione. La shell Android riutilizza le funzionalità web implementate; la verifica completa su dispositivi Android e la pubblicazione non sono ancora state completate. La presenza di migration e test non significa che l'intera suite sia stata eseguita con esito positivo.
 
 ## Prerequisiti
 - Progetto Supabase locale o remoto;
@@ -107,6 +108,23 @@ Copy-Item .env.example .env
 
 Poi impostare `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` nel file `.env`.
 Il frontend web è basato su React, TypeScript e Vite. Include autenticazione email/password con Supabase Auth, panoramica, elenco e dettaglio immobili, creazione/modifica tramite RPC protette e una sezione Proprietari con elenco filtrabile e form per persone fisiche e giuridiche. La creazione del Proprietario assegna l'accesso amministrativo al creatore; l'Immobile richiede quote che totalizzino il 100%. La modifica della struttura delle quote non è ancora implementata. Il seed locale fornisce un Proprietario demo accessibile a `utente.a@test.local`. Non inserire mai `service_role` o secret key nelle variabili `VITE_*`.
+
+## App Android
+
+L'app Android usa Capacitor 8 e lo stesso frontend React della versione web, così le funzionalità già implementate e l'autenticazione Supabase restano condivise. Il layout responsive è comune alle due piattaforme; prima di una release sono necessari test funzionali e di usabilità su dispositivi Android reali.
+
+Prerequisiti: Node.js/npm, Android Studio con Android SDK Platform 36 e un JDK compatibile con la versione Gradle del progetto.
+
+```powershell
+npm install
+# Configurare VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY nel file .env
+npm run android:sync
+npm run android:open
+```
+
+`android:sync` compila il frontend e copia gli asset nell'app nativa; `android:open` apre il progetto in Android Studio. Da Android Studio selezionare un emulatore o un dispositivo con debug USB per eseguire l'app. In alternativa, con SDK e dispositivo già configurati, usare `npm run android:run`. Il sito web per PC continua a usare `npm run dev` e `npm run build`.
+
+L'identificativo Android configurato (`it.gestioneimmobili.app`) è provvisorio e va confermato prima di pubblicare: dopo la pubblicazione non è opportuno cambiarlo. Non inserire mai `service_role` o secret key nell'app; usare esclusivamente la chiave pubblica Supabase e le policy/RPC protette.
 
 Il test runner locale esegue tutte le migration tramite `db reset`, tutti i test SQL, e i test Node/e2e. Richiede Docker, Node/npm, Supabase CLI, le chiavi publishable e secret locali e il file environment della Edge Function:
 

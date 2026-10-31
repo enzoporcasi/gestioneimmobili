@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Gestione Immobili</string>
+    <string name="title_activity_main">Gestione Immobili</string>
+    <string name="package_name">it.gestioneimmobili.app</string>
+    <string name="custom_url_scheme">it.gestioneimmobili.app</string>
+</resources>

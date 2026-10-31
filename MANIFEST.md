@@ -25,8 +25,9 @@ The exact file names and an as-built function inventory are maintained in `READM
 - The web client supports property list/detail/create/edit; creation applies the property and its complete ownership shares atomically.
 - Owner registration supports natural persons and legal entities; the creator receives scoped administrator access atomically.
 - The web client includes a filterable owner inventory and owner registration form.
+- A Capacitor 8 Android project reuses the React web client and Supabase flows; device-level parity, usability verification and release signing remain pending.
 - SQL and Node end-to-end test scripts are present; their presence does not assert that they passed in every environment.
-- No mobile frontend, ownership-share replacement, notification scheduler, push/e-mail delivery service or full set of target RPCs is included.
+- Ownership-share replacement, notification scheduler, push/e-mail delivery service and the full set of target RPCs are not included.
 
 ## Test assets
 - SQL smoke/integration tests cover schema, due dates, constraints, RLS isolation, billing, payments, contract termination, expenses, property-management RPCs and document security.
