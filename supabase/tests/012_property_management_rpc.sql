@@ -73,6 +73,7 @@ declare
     v_company_owner_id uuid;
     v_visible_owner_count integer;
     v_ownership_count integer;
+    v_ownership_total numeric;
 begin
     if has_table_privilege('authenticated', 'public.properties', 'INSERT')
        or has_table_privilege('authenticated', 'public.properties', 'UPDATE')
@@ -237,10 +238,16 @@ begin
         'Immobile RPC test',
         'APARTMENT',
         'Roma',
-        jsonb_build_array(jsonb_build_object(
-            'owner_id', 'c3000000-0000-0000-0000-000000000003',
-            'ownership_percentage', 100
-        )),
+        jsonb_build_array(
+            jsonb_build_object(
+                'owner_id', 'c3000000-0000-0000-0000-000000000003',
+                'ownership_percentage', 59
+            ),
+            jsonb_build_object(
+                'owner_id', v_owner_id,
+                'ownership_percentage', 41
+            )
+        ),
         'Via di prova 1',
         null,
         '00100',
@@ -262,14 +269,27 @@ begin
         raise exception 'PROPERTY_RPC_CREATE_FAILED';
     end if;
 
-    select count(*)
-    into v_ownership_count
+    select count(*), sum(ownership_percentage)
+    into v_ownership_count, v_ownership_total
     from public.property_ownerships
-    where property_id = v_property_id
-      and owner_id = 'c3000000-0000-0000-0000-000000000003'
-      and ownership_percentage = 100;
+    where property_id = v_property_id;
 
-    if v_ownership_count <> 1 then
+    if v_ownership_count <> 2
+       or v_ownership_total <> 100
+       or not exists (
+           select 1
+           from public.property_ownerships
+           where property_id = v_property_id
+             and owner_id = 'c3000000-0000-0000-0000-000000000003'
+             and ownership_percentage = 59
+       )
+       or not exists (
+           select 1
+           from public.property_ownerships
+           where property_id = v_property_id
+             and owner_id = v_owner_id
+             and ownership_percentage = 41
+       ) then
         raise exception 'PROPERTY_RPC_OWNERSHIP_CREATE_FAILED';
     end if;
 

@@ -592,7 +592,7 @@ function Workspace({
               <div className="inline-error" role="alert">
                 <span>{propertyError}</span>
                 <button
-                  className="text-button"
+                  className="allocation-add-button"
                   onClick={() => void refreshProperties()}
                 >
                   Ricarica
@@ -1880,7 +1880,7 @@ function PropertyEditor({
                   <h3>Proprietari e quote</h3>
                   <p>La somma delle quote deve essere pari al 100%.</p>
                 </div>
-                {allocationTotal >= 100 && (
+                {allocationTotal < 100 && (
                   <button
                     className="text-button"
                     disabled={
