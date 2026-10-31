@@ -69,23 +69,144 @@ set local role authenticated;
 do $$
 declare
     v_property_id uuid;
+    v_owner_id uuid;
+    v_company_owner_id uuid;
     v_visible_owner_count integer;
     v_ownership_count integer;
 begin
     if has_table_privilege('authenticated', 'public.properties', 'INSERT')
        or has_table_privilege('authenticated', 'public.properties', 'UPDATE')
        or has_table_privilege('authenticated', 'public.property_ownerships', 'INSERT')
-       or has_table_privilege('authenticated', 'public.property_ownerships', 'UPDATE') then
-        raise exception 'PROPERTY_RPC_DIRECT_WRITE_GRANT_PRESENT';
+       or has_table_privilege('authenticated', 'public.property_ownerships', 'UPDATE')
+       or has_table_privilege('authenticated', 'public.owners', 'INSERT')
+       or has_table_privilege('authenticated', 'public.owners', 'UPDATE')
+       or has_table_privilege('authenticated', 'public.user_owner_accesses', 'INSERT')
+       or has_table_privilege('authenticated', 'public.user_owner_accesses', 'UPDATE') then
+        raise exception 'OWNER_PROPERTY_RPC_DIRECT_WRITE_GRANT_PRESENT';
     end if;
 
     if has_function_privilege(
         'anon',
         'public.create_property_with_ownership(text,text,text,text,jsonb,text,text,text,text,text,numeric,text,jsonb)',
         'EXECUTE'
+    ) or has_function_privilege(
+        'anon',
+        'public.create_owner_with_access(text,text,text,text,text,text,text,text,text,text,text,text,text,text,text,text)',
+        'EXECUTE'
     ) then
-        raise exception 'PROPERTY_RPC_ANON_EXECUTE_GRANTED';
+        raise exception 'OWNER_PROPERTY_RPC_ANON_EXECUTE_GRANTED';
     end if;
+
+    v_owner_id := (public.create_owner_with_access(
+        'NATURAL_PERSON',
+        'Mario',
+        'Rossi',
+        p_tax_code => ' propertyrpc-new-owner ',
+        p_email => 'Mario.Rossi@Example.Test',
+        p_phone => ' 123456 ',
+        p_country_code => 'it'
+    ) ->> 'owner_id')::uuid;
+
+    if not exists (
+        select 1
+        from public.owners
+        where id = v_owner_id
+          and owner_type = 'NATURAL_PERSON'
+          and first_name = 'Mario'
+          and last_name = 'Rossi'
+          and tax_code::text = 'PROPERTYRPC-NEW-OWNER'
+          and email::text = 'mario.rossi@example.test'
+          and phone = '123456'
+          and country_code = 'IT'
+    ) then
+        raise exception 'OWNER_RPC_NATURAL_PERSON_CREATE_FAILED';
+    end if;
+
+    if not security.can_access_owner(v_owner_id, 'ADMINISTRATOR') then
+        raise exception 'OWNER_RPC_CREATOR_ACCESS_NOT_GRANTED';
+    end if;
+
+    v_company_owner_id := (public.create_owner_with_access(
+        'LEGAL_ENTITY',
+        p_business_name => 'Società Immobiliare Test',
+        p_vat_number => ' 01234567890 ',
+        p_municipality => 'Roma'
+    ) ->> 'owner_id')::uuid;
+
+    if not exists (
+        select 1
+        from public.owners
+        where id = v_company_owner_id
+          and owner_type = 'LEGAL_ENTITY'
+          and business_name = 'Società Immobiliare Test'
+          and vat_number::text = '01234567890'
+    ) then
+        raise exception 'OWNER_RPC_LEGAL_ENTITY_CREATE_FAILED';
+    end if;
+
+    if not exists (
+        select 1
+        from public.list_manageable_owners()
+        where owner_id = v_owner_id
+    ) then
+        raise exception 'OWNER_RPC_CREATED_OWNER_NOT_MANAGEABLE';
+    end if;
+
+    begin
+        perform public.create_owner_with_access(
+            'NATURAL_PERSON',
+            'Nome senza cognome'
+        );
+        raise exception 'OWNER_RPC_ACCEPTED_MISSING_LAST_NAME';
+    exception
+        when sqlstate 'P0001' then
+            if sqlerrm <> 'REQUIRED_OWNER_FIELD_MISSING' then
+                raise;
+            end if;
+    end;
+
+    begin
+        perform public.create_owner_with_access(
+            'LEGAL_ENTITY',
+            p_business_name => 'Email non valida',
+            p_email => 'indirizzo-non-valido'
+        );
+        raise exception 'OWNER_RPC_ACCEPTED_INVALID_EMAIL';
+    exception
+        when sqlstate 'P0001' then
+            if sqlerrm <> 'INVALID_OWNER_EMAIL' then
+                raise;
+            end if;
+    end;
+
+    begin
+        perform public.create_owner_with_access(
+            'LEGAL_ENTITY',
+            p_business_name => 'Paese non valido',
+            p_country_code => 'ITA'
+        );
+        raise exception 'OWNER_RPC_ACCEPTED_INVALID_COUNTRY_CODE';
+    exception
+        when sqlstate 'P0001' then
+            if sqlerrm <> 'INVALID_COUNTRY_CODE' then
+                raise;
+            end if;
+    end;
+
+    begin
+        perform public.create_owner_with_access(
+            'NATURAL_PERSON',
+            'Duplicato',
+            'Codice fiscale',
+            p_tax_code => 'PROPERTYRPC-NEW-OWNER'
+        );
+        raise exception 'OWNER_RPC_ACCEPTED_DUPLICATE_TAX_CODE';
+    exception
+        when sqlstate 'P0001' then
+            if sqlerrm <> 'OWNER_TAX_CODE_ALREADY_EXISTS' then
+                raise;
+            end if;
+    end;
 
     if not exists (
         select 1

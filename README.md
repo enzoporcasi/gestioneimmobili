@@ -46,6 +46,7 @@ Le migration vanno eseguite in ordine lessicografico. Il set attuale include:
    - `20261025091342_enable_rls_remaining_tables.sql`
    - `20261025125839_fix_terminate_contract_digest.sql`
    - `20261031170000_property_management_rpc.sql`
+   - `20261031171300_create_owner_with_access.sql`
 
 ## Funzionalità presenti nel codice
 
@@ -53,6 +54,7 @@ Le migration vanno eseguite in ordine lessicografico. Il set attuale include:
 - `profiles`, `owners`, `user_owner_accesses`, `invitations`
 - accessi per property/owner con ruoli `VIEWER`, `MANAGER`, `ADMINISTRATOR`
 - helper `security.can_access_*` per controllo autorizzazioni centralizzato
+- `create_owner_with_access()` crea un Proprietario e assegna atomicamente il ruolo `ADMINISTRATOR` all'utente autenticato; valida il tipo soggetto e i campi obbligatori, normalizza i codici identificativi, rifiuta duplicati e scrive audit
 
 ### Gestione immobili e contratti
 - `properties`, `property_ownerships`, `rentable_spaces`
@@ -104,7 +106,7 @@ Copy-Item .env.example .env
 ```
 
 Poi impostare `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` nel file `.env`.
-Il frontend web è basato su React, TypeScript e Vite. Include autenticazione email/password con Supabase Auth, panoramica, elenco e dettaglio degli immobili, nonché creazione/modifica tramite le RPC protette. La creazione richiede almeno un Proprietario attivo gestibile e quote che totalizzino il 100%; la modifica dei dati catastali è inclusa, mentre la sostituzione delle quote dopo la creazione non è ancora implementata. Le altre sezioni sono intenzionalmente non attive. Il seed locale fornisce un Proprietario demo accessibile a `utente.a@test.local`. Non inserire mai `service_role` o secret key nelle variabili `VITE_*`.
+Il frontend web è basato su React, TypeScript e Vite. Include autenticazione email/password con Supabase Auth, panoramica, elenco e dettaglio immobili, creazione/modifica tramite RPC protette e una sezione Proprietari con elenco filtrabile e form per persone fisiche e giuridiche. La creazione del Proprietario assegna l'accesso amministrativo al creatore; l'Immobile richiede quote che totalizzino il 100%. La modifica della struttura delle quote non è ancora implementata. Il seed locale fornisce un Proprietario demo accessibile a `utente.a@test.local`. Non inserire mai `service_role` o secret key nelle variabili `VITE_*`.
 
 Il test runner locale esegue tutte le migration tramite `db reset`, tutti i test SQL, e i test Node/e2e. Richiede Docker, Node/npm, Supabase CLI, le chiavi publishable e secret locali e il file environment della Edge Function:
 

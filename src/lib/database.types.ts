@@ -46,6 +46,16 @@ export type OwnerSummary = {
   business_name: string | null
 }
 
+export type OwnerListRow = OwnerSummary & {
+  tax_code: string | null
+  vat_number: string | null
+  email: string | null
+  phone: string | null
+  status: string
+  municipality: string | null
+  province: string | null
+}
+
 type PropertyInsert = Omit<PropertyRow, 'id'> & { id?: string }
 type PropertyUpdate = Partial<Omit<PropertyRow, 'id'>>
 
@@ -79,6 +89,13 @@ export type Database = {
           first_name: string | null
           last_name: string | null
           business_name: string | null
+          tax_code: string | null
+          vat_number: string | null
+          email: string | null
+          phone: string | null
+          status: string
+          municipality: string | null
+          province: string | null
         }
         Insert: {
           id?: string
@@ -86,12 +103,26 @@ export type Database = {
           first_name?: string | null
           last_name?: string | null
           business_name?: string | null
+          tax_code?: string | null
+          vat_number?: string | null
+          email?: string | null
+          phone?: string | null
+          status?: string
+          municipality?: string | null
+          province?: string | null
         }
         Update: Partial<{
           owner_type: string
           first_name: string | null
           last_name: string | null
           business_name: string | null
+          tax_code: string | null
+          vat_number: string | null
+          email: string | null
+          phone: string | null
+          status: string
+          municipality: string | null
+          province: string | null
         }>
         Relationships: []
       }
@@ -113,6 +144,27 @@ export type Database = {
       list_manageable_owners: {
         Args: Record<PropertyKey, never>
         Returns: ManageableOwner[]
+      }
+      create_owner_with_access: {
+        Args: {
+          p_owner_type: string
+          p_first_name?: string | null
+          p_last_name?: string | null
+          p_business_name?: string | null
+          p_tax_code?: string | null
+          p_vat_number?: string | null
+          p_email?: string | null
+          p_phone?: string | null
+          p_address_line1?: string | null
+          p_address_line2?: string | null
+          p_postal_code?: string | null
+          p_municipality?: string | null
+          p_province?: string | null
+          p_country_code?: string
+          p_iban?: string | null
+          p_notes?: string | null
+        }
+        Returns: { owner_id: string }
       }
       create_property_with_ownership: {
         Args: {

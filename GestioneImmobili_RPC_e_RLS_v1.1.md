@@ -317,6 +317,7 @@ La v1.1 definisce il comportamento target per RPC, RLS, Storage, atomicità e te
 | Funzione | Stato / note |
 |---|---|
 | `calculate_due_date` | Implementata; gestisce il limite del giorno nei mesi corti. |
+| `create_owner_with_access` | Implementata; crea Owner persona fisica/giuridica e Accesso Administrator per l'attore nella stessa transazione; normalizza i dati, rifiuta codice fiscale/partita IVA duplicati e scrive audit. |
 | `list_manageable_owners` | Implementata; restituisce solo Proprietari attivi nel perimetro Manager dell'attore autenticato. |
 | `create_property_with_ownership` | Implementata; crea Property e quote atomiche, verifica input, accesso Manager a ogni Owner e totale quote pari al 100%; audit. |
 | `update_property_details` | Implementata; aggiorna i dati descrittivi e catastali per utenti Manager sulla Property; audit. Quote e Proprietari non sono modificabili con questa RPC. |
@@ -332,7 +333,7 @@ La v1.1 definisce il comportamento target per RPC, RLS, Storage, atomicità e te
 | `authorize_document_download` | Implementata; autorizza una versione `AVAILABLE` e `CLEAN` e restituisce i metadati per la signed URL. |
 | Edge Function `create-document-download-url` | Implementata; verifica il chiamante, invoca la RPC autorizzativa e usa la chiave privilegiata solo per creare la signed URL. |
 
-Non risultano presenti RPC per `create_owner_with_access`, gestione inviti/accessi, sostituzione delle quote di una proprietà già creata, archiviazione proprietà, attivazione/variazione/estensione contratto, `mark_installment_lost`, gestione completa dei pagamenti/ripartizioni/annullamento spese, archiviazione documento, accettazioni legali o workflow DSR.
+Non risultano presenti RPC per gestione inviti/accessi, modifica/archiviazione Owner, sostituzione delle quote di una proprietà già creata, archiviazione proprietà, attivazione/variazione/estensione contratto, `mark_installment_lost`, gestione completa dei pagamenti/ripartizioni/annullamento spese, archiviazione documento, accettazioni legali o workflow DSR.
 
 ### 17.2 RLS e GRANT effettivi
 
@@ -341,6 +342,7 @@ Non risultano presenti RPC per `create_owner_with_access`, gestione inviti/acces
 - Le policy di lettura base riguardano profilo proprio, Proprietari, Immobili, quote, porzioni, Contratti, Canoni, spese, accettazioni legali proprie e richieste interessato proprie. Esistono inoltre policy SELECT per documenti/versioni e relativi bridge supportati.
 - L'aggiornamento diretto autenticato è limitato ai campi profilo indicati nei GRANT. Le operazioni di business mutanti disponibili passano dalle RPC con GRANT esplicito.
 - La creazione e modifica degli immobili usa le RPC `SECURITY DEFINER` della migration `20261031170000_property_management_rpc.sql`; l'esecuzione è concessa solo a `authenticated`. Non sono concessi INSERT/UPDATE diretti sulle tabelle `properties` e `property_ownerships`.
+- La registrazione Owner usa `create_owner_with_access` dalla migration `20261031171300_create_owner_with_access.sql`; il chiamante autenticato attivo riceve `ADMINISTRATOR` solo sul nuovo Owner. La creazione dell'Owner, dell'accesso e dell'audit è atomica; non sono concessi INSERT/UPDATE diretti sulle tabelle `owners` e `user_owner_accesses`.
 - La creazione non accetta Owner fuori perimetro o inattivi e valida che le quote attive inserite totalizzino il 100%. Il client può elencare esclusivamente gli Owner attivi sui quali l'utente ha ruolo Manager o Administrator.
 - La migration di Storage crea un bucket privato e una policy `INSERT` per oggetti che corrispondono a una versione `RESERVED` prenotata dall'utente autenticato. Non è prevista una policy di SELECT Storage diretta; il download passa dalla Edge Function.
 - Le funzioni elencate nella specifica target ma non presenti nelle migration non devono essere considerate callable né sicure per uso applicativo.
@@ -351,9 +353,10 @@ Non risultano presenti RPC per `create_owner_with_access`, gestione inviti/acces
 - `mark_installment_paid` e `record_partial_installment_payment` non accettano una idempotency key; non promettere replay idempotente di queste operazioni.
 - `terminate_contract` e `create_expense_with_allocations` supportano idempotenza tramite chiave opzionale; il comportamento effettivo è definito nelle rispettive migration.
 - Le RPC immobili attuali non implementano idempotency key né la sostituzione delle quote in una seconda operazione. `update_property_details` non modifica la struttura proprietaria.
+- `create_owner_with_access` non implementa idempotency key; email e identificativi fiscali non creano né collegano un account Auth.
 - La matrice RLS della sezione 9 è il target desiderato, non la descrizione delle policy effettivamente presenti.
 - I casi di concorrenza, rollback, autorizzazione Storage e performance elencati nella sezione 14 sono criteri di verifica; la presenza dei test nel repository non attesta che ogni caso sia già validato nell'ambiente target.
-- `supabase/tests/012_property_management_rpc.sql` copre accesso per ruolo/perimetro, creazione e modifica, validazione della somma quote e input, ed esecuzione senza residui grazie al rollback della fixture.
+- `supabase/tests/012_property_management_rpc.sql` copre registrazione Owner, accesso del creatore, normalizzazione e duplicati, insieme a accesso per ruolo/perimetro, creazione/modifica immobili e validazione delle quote; le fixture vengono annullate con rollback.
 
 ### 17.4 Fonte autorevole e validazione
 

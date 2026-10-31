@@ -10,12 +10,13 @@ import { isSupabaseConfigured, supabase } from './lib/supabase'
 import type {
   Json,
   ManageableOwner,
+  OwnerListRow,
   OwnerSummary,
   PropertyOwnershipRow,
   PropertyRow,
 } from './lib/database.types'
 
-type Page = 'overview' | 'properties'
+type Page = 'overview' | 'properties' | 'owners'
 
 const unavailableSections = [
   'Contratti',
@@ -298,6 +299,7 @@ function Workspace({
         console.error('Manageable owners query failed', error)
       } else {
         setManageableOwners(data ?? [])
+        setManageableOwnersError('')
       }
       setLoadingManageableOwners(false)
     })
@@ -306,6 +308,23 @@ function Workspace({
       active = false
     }
   }, [])
+
+  async function refreshManageableOwners(): Promise<ManageableOwner[] | null> {
+    if (!supabase) return null
+    setLoadingManageableOwners(true)
+    const { data, error } = await supabase.rpc('list_manageable_owners')
+    if (error) {
+      setManageableOwnersError(
+        'Proprietario creato, ma non è stato possibile aggiornare il perimetro di gestione.',
+      )
+      console.error('Manageable owners refresh failed', error)
+    } else {
+      setManageableOwners(data ?? [])
+      setManageableOwnersError('')
+    }
+    setLoadingManageableOwners(false)
+    return error ? null : data ?? []
+  }
 
   async function refreshProperties() {
     if (!supabase) return null
@@ -350,7 +369,7 @@ function Workspace({
   const municipalities = new Set(
     properties.map((property) => property.municipality),
   ).size
-  const canCreateProperty = !loadingManageableOwners && manageableOwners.length > 0
+  const canCreateProperty = !loadingManageableOwners
 
   async function handleSignOut() {
     const error = await onSignOut()
@@ -396,6 +415,16 @@ function Workspace({
             Immobili
             <span className="nav-count">{properties.length}</span>
           </button>
+          <button
+            className={`nav-item${page === 'owners' ? ' nav-item-active' : ''}`}
+            onClick={() => {
+              setPage('owners')
+              setSidebarOpen(false)
+            }}
+          >
+            <span className="nav-symbol">♙</span>
+            Proprietari
+          </button>
           <div className="nav-divider" />
           <span className="nav-section-label">OPERATIVITÀ</span>
           {unavailableSections.map((section) => (
@@ -426,7 +455,13 @@ function Workspace({
           <div className="breadcrumb">
             <span>Workspace</span>
             <span className="breadcrumb-separator">/</span>
-            <strong>{page === 'overview' ? 'Panoramica' : 'Immobili'}</strong>
+            <strong>
+              {page === 'overview'
+                ? 'Panoramica'
+                : page === 'properties'
+                  ? 'Immobili'
+                  : 'Proprietari'}
+            </strong>
           </div>
           <div className="topbar-user">
             {profileError && (
@@ -459,12 +494,16 @@ function Workspace({
               <h1>
                 {page === 'overview'
                   ? `Ciao${userName ? `, ${userName.split(' ')[0]}` : ''}`
-                  : 'Immobili'}
+                  : page === 'properties'
+                    ? 'Immobili'
+                    : 'Proprietari'}
               </h1>
               <p>
                 {page === 'overview'
                   ? 'Una vista d’insieme degli immobili a cui hai accesso.'
-                  : 'Consulta gli immobili visibili nel tuo perimetro.'}
+                  : page === 'properties'
+                    ? 'Consulta gli immobili visibili nel tuo perimetro.'
+                    : 'Gestisci i Proprietari presenti nel tuo perimetro di accesso.'}
               </p>
             </div>
             <div className="today-label">
@@ -478,6 +517,7 @@ function Workspace({
             </div>
           </div>
 
+          {page !== 'owners' && (
           <section aria-label="Riepilogo immobili" className="stats-grid">
             <StatCard
               label="Immobili visibili"
@@ -498,7 +538,15 @@ function Workspace({
               icon="◎"
             />
           </section>
+          )}
 
+          {page === 'owners' ? (
+            <OwnersManagementPanel
+              onOwnerCreated={async () => {
+                await refreshManageableOwners()
+              }}
+            />
+          ) : (
           <section className="content-card">
             <div className="card-heading">
               <div>
@@ -580,6 +628,7 @@ function Workspace({
               I dati mostrati rispettano il perimetro di accesso del tuo account.
             </div>
           </section>
+          )}
           <footer className="page-footer">
             <span>GestioneImmobili</span>
             <span>La gestione del tuo patrimonio, in un unico spazio.</span>
@@ -602,6 +651,7 @@ function Workspace({
           manageableOwnersError={manageableOwnersError}
           mode={propertyEditorMode}
           onCancel={() => setPropertyEditorMode(null)}
+          onRefreshManageableOwners={refreshManageableOwners}
           onSaved={async (propertyId) => {
             const refreshed = await refreshProperties()
             const updatedProperty =
@@ -680,6 +730,522 @@ function PropertyTable({
       </table>
     </div>
   )
+}
+
+type OwnerFormValues = {
+  ownerType: 'NATURAL_PERSON' | 'LEGAL_ENTITY'
+  firstName: string
+  lastName: string
+  businessName: string
+  taxCode: string
+  vatNumber: string
+  email: string
+  phone: string
+  addressLine1: string
+  addressLine2: string
+  postalCode: string
+  municipality: string
+  province: string
+  countryCode: string
+  iban: string
+  notes: string
+}
+
+function OwnersManagementPanel({
+  onOwnerCreated,
+}: {
+  onOwnerCreated: () => Promise<void>
+}) {
+  const [owners, setOwners] = useState<OwnerListRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [search, setSearch] = useState('')
+  const [showCreateForm, setShowCreateForm] = useState(false)
+
+  async function loadOwners() {
+    if (!supabase) {
+      setLoading(false)
+      setError('Connessione al database non disponibile.')
+      return
+    }
+
+    setLoading(true)
+    setError('')
+    const { data, error: ownersError } = await supabase
+      .from('owners')
+      .select(
+        'id, owner_type, first_name, last_name, business_name, tax_code, vat_number, email, phone, status, municipality, province',
+      )
+      .order('business_name', { nullsFirst: false })
+      .order('last_name', { nullsFirst: false })
+
+    if (ownersError) {
+      setError('Non è stato possibile caricare i Proprietari nel tuo perimetro.')
+      console.error('Owners query failed', ownersError)
+    } else {
+      setOwners(data ?? [])
+    }
+    setLoading(false)
+  }
+
+  useEffect(() => {
+    void loadOwners()
+  }, [])
+
+  const filteredOwners = useMemo(() => {
+    const query = search.trim().toLocaleLowerCase('it-IT')
+    if (!query) return owners
+    return owners.filter((owner) =>
+      [
+        ownerDisplayName(owner),
+        owner.tax_code ?? '',
+        owner.vat_number ?? '',
+        owner.email ?? '',
+        owner.phone ?? '',
+        owner.municipality ?? '',
+        owner.province ?? '',
+      ]
+        .join(' ')
+        .toLocaleLowerCase('it-IT')
+        .includes(query),
+    )
+  }, [owners, search])
+
+  return (
+    <>
+      <section className="content-card">
+        <div className="card-heading">
+          <div>
+            <h2>Elenco Proprietari</h2>
+            <p>
+              {owners.length}{' '}
+              {owners.length === 1
+                ? 'Proprietario visibile nel tuo perimetro'
+                : 'Proprietari visibili nel tuo perimetro'}
+            </p>
+          </div>
+          <div className="card-actions">
+            <label className="search-box">
+              <span aria-hidden="true">⌕</span>
+              <input
+                aria-label="Cerca Proprietari"
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Cerca per nominativo, codice o città"
+                value={search}
+              />
+            </label>
+            <button
+              className="primary-button compact-button"
+              onClick={() => setShowCreateForm(true)}
+              type="button"
+            >
+              + Nuovo Proprietario
+            </button>
+          </div>
+        </div>
+
+        {error ? (
+          <div className="inline-error" role="alert">
+            <span>{error}</span>
+            <button className="text-button" onClick={() => void loadOwners()} type="button">
+              Riprova
+            </button>
+          </div>
+        ) : loading ? (
+          <LoadingScreen label="Caricamento Proprietari..." compact />
+        ) : filteredOwners.length === 0 ? (
+          <div className="empty-state">
+            <div className="empty-icon">♙</div>
+            <h3>{owners.length === 0 ? 'Nessun Proprietario visibile' : 'Nessun risultato'}</h3>
+            <p>
+              {owners.length === 0
+                ? 'Registra il primo Proprietario: riceverai automaticamente i permessi di amministrazione sul suo perimetro.'
+                : 'Prova a modificare i termini di ricerca.'}
+            </p>
+          </div>
+        ) : (
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>PROPRIETARIO</th>
+                  <th>TIPO</th>
+                  <th>CODICE FISCALE / P. IVA</th>
+                  <th>CONTATTO</th>
+                  <th>LOCALITÀ</th>
+                  <th>STATO</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredOwners.map((owner) => (
+                  <tr key={owner.id}>
+                    <td>
+                      <div className="property-name-cell">
+                        <span className="property-icon">♙</span>
+                        <span>{ownerDisplayName(owner)}</span>
+                      </div>
+                    </td>
+                    <td>{owner.owner_type === 'LEGAL_ENTITY' ? 'Persona giuridica' : 'Persona fisica'}</td>
+                    <td className="muted-cell">{owner.tax_code || owner.vat_number || '—'}</td>
+                    <td>{owner.email || owner.phone || '—'}</td>
+                    <td>
+                      {[owner.municipality, owner.province]
+                        .filter(Boolean)
+                        .join(' (')
+                        .concat(owner.municipality && owner.province ? ')' : '') || '—'}
+                    </td>
+                    <td>
+                      <span
+                        className={`status-pill ${
+                          owner.status === 'ACTIVE' ? 'status-active' : 'status-inactive'
+                        }`}
+                      >
+                        <span />
+                        {owner.status === 'ACTIVE' ? 'Attivo' : 'Inattivo'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <div className="data-footnote">
+          I Proprietari visibili e le relative informazioni rispettano il perimetro di accesso del tuo account.
+        </div>
+      </section>
+      {showCreateForm && (
+        <OwnerEditor
+          onCancel={() => setShowCreateForm(false)}
+          onSaved={async (_ownerId) => {
+            setShowCreateForm(false)
+            await Promise.all([loadOwners(), onOwnerCreated()])
+          }}
+        />
+      )}
+    </>
+  )
+}
+
+function OwnerEditor({
+  onCancel,
+  onSaved,
+  nested = false,
+}: {
+  onCancel: () => void
+  onSaved: (ownerId: string) => Promise<void>
+  nested?: boolean
+}) {
+  const [values, setValues] = useState<OwnerFormValues>({
+    ownerType: 'NATURAL_PERSON',
+    firstName: '',
+    lastName: '',
+    businessName: '',
+    taxCode: '',
+    vatNumber: '',
+    email: '',
+    phone: '',
+    addressLine1: '',
+    addressLine2: '',
+    postalCode: '',
+    municipality: '',
+    province: '',
+    countryCode: 'IT',
+    iban: '',
+    notes: '',
+  })
+  const [submitError, setSubmitError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  function updateValue(field: keyof OwnerFormValues, value: string) {
+    setValues((current) => ({ ...current, [field]: value }))
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setSubmitError('')
+    if (!supabase) {
+      setSubmitError('Connessione al database non disponibile.')
+      return
+    }
+
+    setSubmitting(true)
+    const { data, error } = await supabase.rpc('create_owner_with_access', {
+      p_owner_type: values.ownerType,
+      p_first_name: values.ownerType === 'NATURAL_PERSON' ? values.firstName.trim() : null,
+      p_last_name: values.ownerType === 'NATURAL_PERSON' ? values.lastName.trim() : null,
+      p_business_name: values.ownerType === 'LEGAL_ENTITY' ? values.businessName.trim() : null,
+      p_tax_code: values.taxCode,
+      p_vat_number: values.vatNumber,
+      p_email: values.email,
+      p_phone: values.phone,
+      p_address_line1: values.addressLine1,
+      p_address_line2: values.addressLine2,
+      p_postal_code: values.postalCode,
+      p_municipality: values.municipality,
+      p_province: values.province,
+      p_country_code: values.countryCode.trim().toUpperCase(),
+      p_iban: values.iban,
+      p_notes: values.notes,
+    })
+    setSubmitting(false)
+
+    if (error) {
+      setSubmitError(ownerRpcErrorMessage(error.message))
+      console.error('Owner creation RPC failed', error)
+      return
+    }
+
+    if (!data?.owner_id) {
+      setSubmitError('Il salvataggio non ha restituito l’identificativo del Proprietario.')
+      console.error('Owner creation RPC returned no owner id', data)
+      return
+    }
+
+    await onSaved(data.owner_id)
+  }
+
+  return (
+    <div className={`dialog-backdrop${nested ? ' dialog-backdrop-nested' : ''}`}>
+      <section
+        aria-labelledby="owner-editor-title"
+        aria-modal="true"
+        className="dialog-card editor-dialog"
+        role="dialog"
+      >
+        <div className="dialog-heading">
+          <div>
+            <span className="eyebrow">NUOVO PROPRIETARIO</span>
+            <h2 id="owner-editor-title">Registra un Proprietario</h2>
+            <p>Ti verrà assegnato automaticamente il ruolo di amministratore sul suo perimetro.</p>
+          </div>
+          <button
+            aria-label="Chiudi modulo"
+            className="dialog-close"
+            onClick={onCancel}
+            type="button"
+          >
+            ×
+          </button>
+        </div>
+
+        <form className="property-form" onSubmit={(event) => void handleSubmit(event)}>
+          <div className="form-section">
+            <h3>Tipo di soggetto</h3>
+            <div className="owner-type-switch" role="group" aria-label="Tipo di Proprietario">
+              <button
+                aria-pressed={values.ownerType === 'NATURAL_PERSON'}
+                className={values.ownerType === 'NATURAL_PERSON' ? 'owner-type-active' : ''}
+                onClick={() => updateValue('ownerType', 'NATURAL_PERSON')}
+                type="button"
+              >
+                Persona fisica
+              </button>
+              <button
+                aria-pressed={values.ownerType === 'LEGAL_ENTITY'}
+                className={values.ownerType === 'LEGAL_ENTITY' ? 'owner-type-active' : ''}
+                onClick={() => updateValue('ownerType', 'LEGAL_ENTITY')}
+                type="button"
+              >
+                Persona giuridica
+              </button>
+            </div>
+            <div className="form-grid owner-form-grid">
+              {values.ownerType === 'NATURAL_PERSON' ? (
+                <>
+                  <FormField label="Nome" required>
+                    <input
+                      autoComplete="given-name"
+                      maxLength={200}
+                      onChange={(event) => updateValue('firstName', event.target.value)}
+                      required
+                      value={values.firstName}
+                    />
+                  </FormField>
+                  <FormField label="Cognome" required>
+                    <input
+                      autoComplete="family-name"
+                      maxLength={200}
+                      onChange={(event) => updateValue('lastName', event.target.value)}
+                      required
+                      value={values.lastName}
+                    />
+                  </FormField>
+                </>
+              ) : (
+                <FormField label="Ragione sociale" required>
+                  <input
+                    autoComplete="organization"
+                    maxLength={200}
+                    onChange={(event) => updateValue('businessName', event.target.value)}
+                    required
+                    value={values.businessName}
+                  />
+                </FormField>
+              )}
+              <FormField label="Codice fiscale">
+                <input
+                  autoComplete="off"
+                  maxLength={32}
+                  onChange={(event) => updateValue('taxCode', event.target.value)}
+                  value={values.taxCode}
+                />
+              </FormField>
+              <FormField label="Partita IVA">
+                <input
+                  autoComplete="off"
+                  maxLength={32}
+                  onChange={(event) => updateValue('vatNumber', event.target.value)}
+                  value={values.vatNumber}
+                />
+              </FormField>
+            </div>
+          </div>
+
+          <div className="form-section">
+            <h3>Contatti</h3>
+            <div className="form-grid">
+              <FormField label="Email">
+                <input
+                  autoComplete="email"
+                  onChange={(event) => updateValue('email', event.target.value)}
+                  type="email"
+                  value={values.email}
+                />
+              </FormField>
+              <FormField label="Telefono">
+                <input
+                  autoComplete="tel"
+                  onChange={(event) => updateValue('phone', event.target.value)}
+                  type="tel"
+                  value={values.phone}
+                />
+              </FormField>
+              <FormField label="Indirizzo">
+                <input
+                  autoComplete="address-line1"
+                  onChange={(event) => updateValue('addressLine1', event.target.value)}
+                  value={values.addressLine1}
+                />
+              </FormField>
+              <FormField label="Dettaglio indirizzo">
+                <input
+                  autoComplete="address-line2"
+                  onChange={(event) => updateValue('addressLine2', event.target.value)}
+                  value={values.addressLine2}
+                />
+              </FormField>
+              <FormField label="CAP">
+                <input
+                  autoComplete="postal-code"
+                  onChange={(event) => updateValue('postalCode', event.target.value)}
+                  value={values.postalCode}
+                />
+              </FormField>
+              <FormField label="Comune">
+                <input
+                  autoComplete="address-level2"
+                  onChange={(event) => updateValue('municipality', event.target.value)}
+                  value={values.municipality}
+                />
+              </FormField>
+              <FormField label="Provincia">
+                <input
+                  autoComplete="address-level1"
+                  maxLength={2}
+                  onChange={(event) => updateValue('province', event.target.value)}
+                  value={values.province}
+                />
+              </FormField>
+              <FormField label="Codice Paese" required>
+                <input
+                  autoComplete="country"
+                  maxLength={2}
+                  onChange={(event) => updateValue('countryCode', event.target.value)}
+                  required
+                  value={values.countryCode}
+                />
+              </FormField>
+            </div>
+          </div>
+
+          <div className="form-section">
+            <h3>Dati amministrativi</h3>
+            <FormField label="IBAN">
+              <input
+                autoComplete="off"
+                maxLength={34}
+                onChange={(event) => updateValue('iban', event.target.value)}
+                value={values.iban}
+              />
+            </FormField>
+            <FormField label="Note">
+              <textarea
+                onChange={(event) => updateValue('notes', event.target.value)}
+                rows={3}
+                value={values.notes}
+              />
+            </FormField>
+          </div>
+
+          {submitError && <p className="form-error" role="alert">{submitError}</p>}
+          <div className="dialog-footer">
+            <button className="primary-button" disabled={submitting} type="submit">
+              {submitting ? 'Salvataggio…' : 'Crea Proprietario'}
+            </button>
+            <button
+              className="secondary-button"
+              disabled={submitting}
+              onClick={onCancel}
+              type="button"
+            >
+              Annulla
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+  )
+}
+
+function ownerDisplayName(owner: OwnerSummary) {
+  return owner.business_name ||
+    [owner.first_name, owner.last_name].filter(Boolean).join(' ') ||
+    'Proprietario'
+}
+
+function ownerRpcErrorMessage(message: string) {
+  if (message.includes('OWNER_TAX_CODE_ALREADY_EXISTS')) {
+    return 'Esiste già un Proprietario con questo codice fiscale.'
+  }
+  if (message.includes('OWNER_VAT_NUMBER_ALREADY_EXISTS')) {
+    return 'Esiste già un Proprietario con questa partita IVA.'
+  }
+  if (message.includes('REQUIRED_OWNER_FIELD_MISSING')) {
+    return 'Inserisci tutti i dati obbligatori per il tipo di soggetto scelto.'
+  }
+  if (message.includes('INVALID_OWNER_TYPE')) {
+    return 'Il tipo di Proprietario selezionato non è valido.'
+  }
+  if (message.includes('INVALID_COUNTRY_CODE')) {
+    return 'Inserisci un codice Paese di due lettere, ad esempio IT.'
+  }
+  if (message.includes('INVALID_OWNER_EMAIL')) {
+    return 'Inserisci un indirizzo email valido.'
+  }
+  if (message.includes('INVALID_OWNER_TAX_CODE')) {
+    return 'Il codice fiscale non può superare 32 caratteri.'
+  }
+  if (message.includes('INVALID_OWNER_VAT_NUMBER')) {
+    return 'La partita IVA non può superare 32 caratteri.'
+  }
+  if (message.includes('INVALID_OWNER_IBAN')) {
+    return 'L’IBAN non può superare 34 caratteri.'
+  }
+  if (message.includes('ACCESS_DENIED')) {
+    return 'Il tuo account non è attivo o non è autorizzato a creare Proprietari.'
+  }
+  return 'Non è stato possibile creare il Proprietario. Controlla i dati e riprova.'
 }
 
 type PropertyAllocationDraft = {
@@ -920,6 +1486,7 @@ function PropertyEditor({
   loadingManageableOwners,
   manageableOwnersError,
   onCancel,
+  onRefreshManageableOwners,
   onSaved,
 }: {
   mode: 'create' | 'edit'
@@ -928,6 +1495,7 @@ function PropertyEditor({
   loadingManageableOwners: boolean
   manageableOwnersError: string
   onCancel: () => void
+  onRefreshManageableOwners: () => Promise<ManageableOwner[] | null>
   onSaved: (propertyId: string) => Promise<void>
 }) {
   const [values, setValues] = useState<PropertyFormValues>(() => ({
@@ -953,19 +1521,33 @@ function PropertyEditor({
   const [allocations, setAllocations] = useState<PropertyAllocationDraft[]>([])
   const [submitError, setSubmitError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [creatingOwnerForAllocation, setCreatingOwnerForAllocation] = useState<number | null>(null)
+  const allocationTotal = allocations.reduce(
+    (sum, allocation) => sum + (Number(allocation.percentage) || 0),
+    0,
+  )
 
   useEffect(() => {
     if (
       mode === 'create' &&
       !loadingManageableOwners &&
-      allocations.length === 0 &&
-      manageableOwners.length > 0
+      !manageableOwnersError &&
+      allocations.length === 0
     ) {
       setAllocations([
-        { ownerId: manageableOwners[0].owner_id, percentage: '100' },
+        {
+          ownerId: manageableOwners[0]?.owner_id ?? '',
+          percentage: manageableOwners.length > 0 ? '100' : '',
+        },
       ])
     }
-  }, [allocations.length, loadingManageableOwners, manageableOwners, mode])
+  }, [
+    allocations.length,
+    loadingManageableOwners,
+    manageableOwners,
+    manageableOwnersError,
+    mode,
+  ])
 
   function updateValue(field: keyof PropertyFormValues, value: string) {
     setValues((current) => ({ ...current, [field]: value }))
@@ -1025,6 +1607,12 @@ function PropertyEditor({
 
     setSubmitting(true)
     if (mode === 'create') {
+      if (allocationTotal > 100) {
+        setSubmitError('La somma delle percentuali non può superare il 100%.')
+        setSubmitting(false)
+        return
+      }
+
       const percentages = allocations.map((allocation) =>
         Number(allocation.percentage),
       )
@@ -1099,6 +1687,15 @@ function PropertyEditor({
 
   const createOwnerSelectionAvailable =
     mode === 'edit' || manageableOwners.length > 0
+  const selectedOwnerIds = new Set(
+    allocations.map((allocation) => allocation.ownerId).filter(Boolean),
+  )
+  const hasUnselectedAllocation = allocations.some(
+    (allocation) => !allocation.ownerId,
+  )
+  const nextAvailableOwner = manageableOwners.find(
+    (owner) => !selectedOwnerIds.has(owner.owner_id),
+  )
 
   return (
     <div className="dialog-backdrop">
@@ -1283,23 +1880,20 @@ function PropertyEditor({
                   <h3>Proprietari e quote</h3>
                   <p>La somma delle quote deve essere pari al 100%.</p>
                 </div>
-                {manageableOwners.length > 1 && (
+                {allocationTotal >= 100 && (
                   <button
                     className="text-button"
-                    disabled={allocations.length >= manageableOwners.length}
+                    disabled={
+                      loadingManageableOwners ||
+                      Boolean(manageableOwnersError) ||
+                      hasUnselectedAllocation ||
+                      allocationTotal > 100
+                    }
                     onClick={() => {
-                      const chosenOwners = new Set(
-                        allocations.map((allocation) => allocation.ownerId),
-                      )
-                      const nextOwner = manageableOwners.find(
-                        (owner) => !chosenOwners.has(owner.owner_id),
-                      )
-                      if (nextOwner) {
-                        setAllocations((current) => [
-                          ...current,
-                          { ownerId: nextOwner.owner_id, percentage: '' },
-                        ])
-                      }
+                      setAllocations((current) => [
+                        ...current,
+                        { ownerId: nextAvailableOwner?.owner_id ?? '', percentage: '' },
+                      ])
                     }}
                     type="button"
                   >
@@ -1311,80 +1905,93 @@ function PropertyEditor({
                 <LoadingScreen label="Caricamento Proprietari..." compact />
               ) : manageableOwnersError ? (
                 <p className="form-error" role="alert">{manageableOwnersError}</p>
-              ) : manageableOwners.length === 0 ? (
-                <p className="detail-muted">
-                  Non hai Proprietari attivi nel tuo perimetro di gestione. La creazione è disponibile dopo averne configurato uno.
-                </p>
               ) : (
-                <div className="allocation-list">
-                  {allocations.map((allocation, index) => (
-                    <div className="allocation-row" key={`allocation-${index}`}>
-                      <label className="form-field">
-                        <span>Proprietario</span>
-                        <select
-                          onChange={(event) =>
-                            changeAllocation(index, 'ownerId', event.target.value)
-                          }
-                          required
-                          value={allocation.ownerId}
-                        >
-                          {manageableOwners.map((owner) => (
-                            <option
-                              disabled={allocations.some(
-                                (other, otherIndex) =>
-                                  otherIndex !== index &&
-                                  other.ownerId === owner.owner_id,
-                              )}
-                              key={owner.owner_id}
-                              value={owner.owner_id}
-                            >
-                              {owner.owner_name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label className="form-field">
-                        <span>Quota (%)</span>
-                        <input
-                          max="100"
-                          min="0.0001"
-                          onChange={(event) =>
-                            changeAllocation(index, 'percentage', event.target.value)
-                          }
-                          required
-                          step="0.0001"
-                          type="number"
-                          value={allocation.percentage}
-                        />
-                      </label>
-                      {allocations.length > 1 && (
-                        <button
-                          aria-label="Rimuovi proprietario"
-                          className="allocation-remove"
-                          onClick={() =>
-                            setAllocations((current) =>
-                              current.filter((_, allocationIndex) => allocationIndex !== index),
-                            )
-                          }
-                          type="button"
-                        >
-                          Rimuovi
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                  <p className="allocation-total">
-                    Totale:{' '}
-                    {new Intl.NumberFormat('it-IT', {
-                      maximumFractionDigits: 4,
-                    }).format(
-                      allocations.reduce(
-                        (sum, allocation) => sum + (Number(allocation.percentage) || 0),
-                        0,
-                      ),
-                    )}%
-                  </p>
-                </div>
+                <>
+                  {manageableOwners.length === 0 && (
+                    <p className="detail-muted">
+                      Non hai Proprietari nel tuo perimetro. Seleziona «Nuovo proprietario» nell’elenco per registrarne uno.
+                    </p>
+                  )}
+                  <div className="allocation-list">
+                    {allocations.map((allocation, index) => (
+                      <div className="allocation-row" key={`allocation-${index}`}>
+                        <label className="form-field">
+                          <span>Proprietario</span>
+                          <select
+                            onChange={(event) => {
+                              if (event.target.value === '__create_new_owner__') {
+                                setCreatingOwnerForAllocation(index)
+                                return
+                              }
+                              changeAllocation(index, 'ownerId', event.target.value)
+                            }}
+                            required
+                            value={allocation.ownerId}
+                          >
+                            {!allocation.ownerId && (
+                              <option disabled value="">
+                                Seleziona un Proprietario
+                              </option>
+                            )}
+                            {manageableOwners.map((owner) => (
+                              <option
+                                disabled={allocations.some(
+                                  (other, otherIndex) =>
+                                    otherIndex !== index &&
+                                    other.ownerId === owner.owner_id,
+                                )}
+                                key={owner.owner_id}
+                                value={owner.owner_id}
+                              >
+                                {owner.owner_name}
+                              </option>
+                            ))}
+                            <option value="__create_new_owner__">+ Nuovo proprietario</option>
+                          </select>
+                        </label>
+                        <label className="form-field">
+                          <span>Quota (%)</span>
+                          <input
+                            max="100"
+                            min="0.0001"
+                            onChange={(event) =>
+                              changeAllocation(index, 'percentage', event.target.value)
+                            }
+                            required
+                            step="0.0001"
+                            type="number"
+                            value={allocation.percentage}
+                          />
+                        </label>
+                        {allocations.length > 1 && (
+                          <button
+                            aria-label="Rimuovi proprietario"
+                            className="allocation-remove"
+                            onClick={() =>
+                              setAllocations((current) =>
+                                current.filter((_, allocationIndex) => allocationIndex !== index),
+                              )
+                            }
+                            type="button"
+                          >
+                            Rimuovi
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    <p className="allocation-total">
+                      Totale:{' '}
+                      {new Intl.NumberFormat('it-IT', {
+                        maximumFractionDigits: 4,
+                      }).format(allocationTotal)}%
+                    </p>
+                    {allocationTotal > 100 && (
+                      <p className="form-error" role="alert">
+                        La somma delle percentuali non può superare il 100%.
+                      </p>
+                    )}
+                  </div>
+                </>
               )}
             </div>
           )}
@@ -1428,6 +2035,23 @@ function PropertyEditor({
           </div>
         </form>
       </section>
+      {creatingOwnerForAllocation !== null && (
+        <OwnerEditor
+          nested
+          onCancel={() => setCreatingOwnerForAllocation(null)}
+          onSaved={async (ownerId) => {
+            const refreshedOwners = await onRefreshManageableOwners()
+            setCreatingOwnerForAllocation(null)
+            if (refreshedOwners?.some((owner) => owner.owner_id === ownerId)) {
+              changeAllocation(creatingOwnerForAllocation, 'ownerId', ownerId)
+            } else {
+              setSubmitError(
+                'Proprietario creato, ma non è stato possibile aggiornare l’elenco. Riprova a ricaricare i Proprietari.',
+              )
+            }
+          }}
+        />
+      )}
     </div>
   )
 }
