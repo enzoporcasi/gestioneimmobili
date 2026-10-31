@@ -2,7 +2,7 @@
 
 ## Migration set
 
-The current set is the ordered list in `supabase/migrations/`: base schema (001-011), followed by six timestamped migrations for partial payments, contract termination, expense creation, document workflow/RLS, remaining-table RLS enablement and a digest/search-path correction.
+The current set is the ordered list in `supabase/migrations/`: base schema (001-011), followed by timestamped migrations for partial payments, contract termination, expense creation, document workflow/RLS, remaining-table RLS enablement, a digest/search-path correction and protected property management.
 
 The exact file names and an as-built function inventory are maintained in `README.md` and `GestioneImmobili_Modello_Dati_Fisico_Supabase_v1.2.md`.
 
@@ -13,6 +13,7 @@ The exact file names and an as-built function inventory are maintained in `READM
 - `20261025000400_document_rpcs_and_rls.sql`
 - `20261025091342_enable_rls_remaining_tables.sql`
 - `20261025125839_fix_terminate_contract_digest.sql`
+- `20261031170000_property_management_rpc.sql`
 
 ## Functional coverage
 - Core schema for owners, properties, contracts, billing, expenses, documents and privacy/audit metadata.
@@ -20,11 +21,12 @@ The exact file names and an as-built function inventory are maintained in `READM
 - Progressive rent installment generation, balance view, full/partial payment functions.
 - Contract termination and expense creation with allocations, including the optional first payment.
 - Document reservation/finalization, scan-result transition and authorized signed-download flow; malware scanning itself is external.
+- The web client supports property list/detail/create/edit; creation applies the property and its complete ownership shares atomically.
 - SQL and Node end-to-end test scripts are present; their presence does not assert that they passed in every environment.
-- No mobile frontend, notification scheduler, push/e-mail delivery service or full set of target RPCs is included.
+- No mobile frontend, ownership-share replacement, notification scheduler, push/e-mail delivery service or full set of target RPCs is included.
 
 ## Test assets
-- SQL smoke/integration tests cover schema, due dates, constraints, RLS isolation, billing, payments, contract termination, expenses and document security.
+- SQL smoke/integration tests cover schema, due dates, constraints, RLS isolation, billing, payments, contract termination, expenses, property-management RPCs and document security.
 - Node scripts cover Storage upload and document-download URL flows.
 - `scripts/run-all-tests.ps1` runs the migrations/reset and SQL/Node suites against local Supabase.
 - Test execution status is not inferred from the presence of these files; use the runner and record its actual result.

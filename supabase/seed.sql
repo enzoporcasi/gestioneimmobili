@@ -231,7 +231,58 @@ set
     updated_at = now();
 
 -- ------------------------------------------------------------
--- 4. Verifica seed: deve fallire se non sono presenti 2 utenti
+-- 4. Proprietario demo per provare la gestione immobili dal web
+-- ------------------------------------------------------------
+
+insert into public.owners (
+    id,
+    owner_type,
+    first_name,
+    last_name,
+    status,
+    notes
+)
+values (
+    'd3000000-0000-0000-0000-000000000003',
+    'NATURAL_PERSON',
+    'Proprietario',
+    'Demo',
+    'ACTIVE',
+    'Fixture dimostrativa locale'
+)
+on conflict (id) do update
+set owner_type = excluded.owner_type,
+    first_name = excluded.first_name,
+    last_name = excluded.last_name,
+    status = excluded.status,
+    notes = excluded.notes,
+    updated_at = now();
+
+insert into public.user_owner_accesses (
+    user_id,
+    owner_id,
+    role,
+    valid_from,
+    status
+)
+select
+    '796c3053-6a28-4ff5-aa08-06129dcf942e',
+    'd3000000-0000-0000-0000-000000000003',
+    'ADMINISTRATOR',
+    current_date,
+    'ACTIVE'
+where not exists (
+    select 1
+    from public.user_owner_accesses
+    where user_id = '796c3053-6a28-4ff5-aa08-06129dcf942e'
+      and owner_id = 'd3000000-0000-0000-0000-000000000003'
+      and status = 'ACTIVE'
+      and current_date >= valid_from
+      and (valid_to is null or current_date < valid_to)
+);
+
+-- ------------------------------------------------------------
+-- 5. Verifica seed: deve fallire se non sono presenti 2 utenti
 -- ------------------------------------------------------------
 
 do $$

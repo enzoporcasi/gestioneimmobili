@@ -10,9 +10,11 @@ Il repository include:
 - helper di sicurezza per proprietà, contratti, canoni, spese e documenti;
 - view e generator di rate;
 - RPC per alcuni flussi di billing, cessazione contratto, creazione spesa e ciclo documentale;
+- RPC per elenco dei Proprietari gestibili e creazione/modifica protetta degli immobili con quote;
 - RLS abilitata sulle tabelle applicative, con policy esplicite ancora parziali;
 - bucket Storage dedicato ai documenti immobiliari con upload riservato;
-- suite di test SQL e script e2e per validazioni di schema, billing e storage.
+- frontend web React/TypeScript per autenticazione e gestione immobili;
+- suite di test SQL e script e2e per validazioni di schema, billing, immobili e storage.
 
 Questa configurazione è da intendere come implementation snapshot di progetto, non come certificazione di produzione. La presenza di migration e test non significa che l'intera suite sia stata eseguita con esito positivo. Il repository non contiene il client mobile descritto dai requisiti.
 
@@ -43,6 +45,7 @@ Le migration vanno eseguite in ordine lessicografico. Il set attuale include:
    - `20261025000400_document_rpcs_and_rls.sql`
    - `20261025091342_enable_rls_remaining_tables.sql`
    - `20261025125839_fix_terminate_contract_digest.sql`
+   - `20261031170000_property_management_rpc.sql`
 
 ## Funzionalità presenti nel codice
 
@@ -53,6 +56,9 @@ Le migration vanno eseguite in ordine lessicografico. Il set attuale include:
 
 ### Gestione immobili e contratti
 - `properties`, `property_ownerships`, `rentable_spaces`
+- `list_manageable_owners()` per esporre al client solo i Proprietari attivi gestibili dall'utente
+- `create_property_with_ownership()` crea Immobile e quote atomiche; richiede ruolo Manager su tutti i Proprietari e totale quote pari al 100%
+- `update_property_details()` modifica i dati descrittivi solo per utenti con ruolo Manager sulla Property
 - `contracts`, `contract_terms`, `contract_tenants`, `contract_changes`
 - schema e terminazione anticipata del contratto
 - generazione progressiva di rate e calcolo due_date
@@ -98,7 +104,7 @@ Copy-Item .env.example .env
 ```
 
 Poi impostare `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` nel file `.env`.
-Il frontend web iniziale è basato su React, TypeScript e Vite. Include autenticazione email/password con Supabase Auth e consultazione degli immobili consentiti dalle policy RLS disponibili. Le altre sezioni sono intenzionalmente non attive finché non saranno implementati i relativi flussi backend. Non inserire mai `service_role` o secret key nelle variabili `VITE_*`.
+Il frontend web è basato su React, TypeScript e Vite. Include autenticazione email/password con Supabase Auth, panoramica, elenco e dettaglio degli immobili, nonché creazione/modifica tramite le RPC protette. La creazione richiede almeno un Proprietario attivo gestibile e quote che totalizzino il 100%; la modifica dei dati catastali è inclusa, mentre la sostituzione delle quote dopo la creazione non è ancora implementata. Le altre sezioni sono intenzionalmente non attive. Il seed locale fornisce un Proprietario demo accessibile a `utente.a@test.local`. Non inserire mai `service_role` o secret key nelle variabili `VITE_*`.
 
 Il test runner locale esegue tutte le migration tramite `db reset`, tutti i test SQL, e i test Node/e2e. Richiede Docker, Node/npm, Supabase CLI, le chiavi publishable e secret locali e il file environment della Edge Function:
 
@@ -122,6 +128,7 @@ psql "$DATABASE_URL" -f supabase/tests/007_partial_installment_payment.sql
 psql "$DATABASE_URL" -f supabase/tests/008_terminate_contract.sql
 psql "$DATABASE_URL" -f supabase/tests/009_create_expense_with_allocations.sql
 psql "$DATABASE_URL" -f supabase/tests/010_document_rls.sql
+psql "$DATABASE_URL" -f supabase/tests/012_property_management_rpc.sql
 node supabase/tests/011_storage_upload_e2e.mjs
 node supabase/tests/012_create_document_download_url_e2e.mjs
 ```
