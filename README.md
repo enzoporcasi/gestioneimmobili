@@ -83,9 +83,22 @@ L'elenco completo delle funzioni implementate e delle lacune è in [GestioneImmo
 ## Comandi tipici
 
 ```bash
+npm install
+npm run dev
+npm run build
+
 supabase start
 supabase db reset
 ```
+
+Su Windows, prima dell'avvio:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Poi impostare `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` nel file `.env`.
+Il frontend web iniziale è basato su React, TypeScript e Vite. Include autenticazione email/password con Supabase Auth e consultazione degli immobili consentiti dalle policy RLS disponibili. Le altre sezioni sono intenzionalmente non attive finché non saranno implementati i relativi flussi backend. Non inserire mai `service_role` o secret key nelle variabili `VITE_*`.
 
 Il test runner locale esegue tutte le migration tramite `db reset`, tutti i test SQL, e i test Node/e2e. Richiede Docker, Node/npm, Supabase CLI, le chiavi publishable e secret locali e il file environment della Edge Function:
 
