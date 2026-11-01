@@ -350,8 +350,10 @@ Non risultano presenti RPC per gestione inviti/accessi, modifica/archiviazione O
 
 ### 17.2 RLS e GRANT effettivi
 
-- RLS è abilitata sulle tabelle applicative tramite le migration base, documentali e successive.
-- Le policy esplicite non coprono tutte le tabelle abilitate: tabelle senza policy permissiva restano inaccessibili tramite le richieste client soggette a RLS. L'abilitazione RLS non equivale alla matrice target della sezione 9.
+- RLS è abilitata su tutte le tabelle applicative. La migration `20261101190000_complete_scoped_rls.sql` aggiunge policy esplicite alle tabelle prima chiuse; la migration `20261101200000_scope_legal_document_versions.sql` limita anche le versioni legali ai documenti attivi.
+- Ogni tabella pubblica con RLS ha ora almeno una policy: le relazioni contrattuali e finanziarie ereditano il perimetro delle entità collegate; scadenze e notifiche sono visibili all'utente assegnato/destinatario; i documenti legali sono consultabili solo se attivi e correnti. Inviti, mapping di sistema, audit, eventi di sicurezza, esecuzioni billing e chiavi di idempotenza restano esplicitamente non leggibili dal client.
+- `security.can_access_owner` e `security.can_access_property` richiedono anche un profilo `ACTIVE` e non archiviato. Le policy che dipendono da questi helper negano l'accesso a sessioni il cui profilo sia stato bloccato o archiviato.
+- `v_rent_installment_balance` usa `security_invoker=true`: le sue letture e i calcoli sulle allocazioni rispettano le policy RLS del chiamante.
 - Le policy di lettura base riguardano profilo proprio, Proprietari, Immobili, quote, porzioni, Contratti, Canoni, spese, accettazioni legali proprie e richieste interessato proprie. Esistono inoltre policy SELECT per documenti/versioni e relativi bridge supportati.
 - L'aggiornamento diretto autenticato è limitato ai campi profilo indicati nei GRANT. Le operazioni di business mutanti disponibili passano dalle RPC con GRANT esplicito.
 - La creazione e modifica degli immobili usa le RPC `SECURITY DEFINER` della migration `20261031170000_property_management_rpc.sql`; l'esecuzione è concessa solo a `authenticated`. Non sono concessi INSERT/UPDATE diretti sulle tabelle `properties` e `property_ownerships`.
@@ -363,6 +365,12 @@ Non risultano presenti RPC per gestione inviti/accessi, modifica/archiviazione O
 - La creazione non accetta Owner fuori perimetro o inattivi e valida che le quote attive inserite totalizzino il 100%. Il client può elencare esclusivamente gli Owner attivi sui quali l'utente ha ruolo Manager o Administrator.
 - La migration di Storage crea un bucket privato e una policy `INSERT` per oggetti che corrispondono a una versione `RESERVED` prenotata dall'utente autenticato. Non è prevista una policy di SELECT Storage diretta; il download passa dalla Edge Function.
 - Le funzioni elencate nella specifica target ma non presenti nelle migration non devono essere considerate callable né sicure per uso applicativo.
+- La migration `20261101180000_restrict_client_privileges.sql` rimuove i privilegi diretti di `anon` e i privilegi DML/DDL a livello tabella di `authenticated`, inclusi `TRUNCATE`, `REFERENCES` e `TRIGGER`. `authenticated` mantiene solo le letture esplicitamente concesse e l'aggiornamento dei campi profilo previsti; le scritture applicative passano dalle RPC autorizzate.
+- I default ACL del ruolo `postgres` usato dalle migration non concedono nuovi oggetti a `PUBLIC`, `anon` o `authenticated`; le nuove RPC richiedono un `GRANT EXECUTE` esplicito. Le funzioni applicative non sono eseguibili da `anon`.
+- Tutte le policy RLS applicative correnti sono di sola lettura; le mutazioni dirette rimangono negate e le scritture business passano dalle RPC autorizzate. Una nuova funzionalità deve aggiungere il GRANT strettamente necessario, la policy con perimetro esplicito e i test di isolamento nella stessa modifica.
+- `supabase/tests/017_access_security_privileges.sql` verifica in locale RLS su tutte le tabelle pubbliche, privilegi effettivi dei ruoli client, aggiornamento limitato dei profili, RPC non anonime e default ACL restrittivi.
+- `supabase/tests/018_scoped_rls.sql` verifica localmente l'isolamento tra due utenti su relazioni contrattuali, rate, incassi, spese, ripartizioni, scadenze, notifiche e documenti legali, inclusi collegamenti incoerenti tra entità e profili bloccati. Verifica inoltre che le tabelle operative e di audit restino private.
+- Per eseguire i test SQL locali usare `.\supabase\tests\run-local.ps1`: gli script storici con metacomandi `psql` vengono eseguiti nel container locale e i test `017`/`018` tramite pgTAP. `006_storage_security.sql` è un promemoria per test API Storage e non uno script SQL eseguibile; i test E2E Storage restano separati.
 
 ### 17.3 Differenze rispetto alla specifica target
 
