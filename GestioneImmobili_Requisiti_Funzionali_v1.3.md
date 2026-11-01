@@ -5,7 +5,7 @@
 **Versione:** 1.3  
 **Stato:** Baseline funzionale; non rappresenta da sola una dichiarazione di funzionalità già rilasciate.
 
-> **Allineamento al codice (2026-10-31):** questo documento descrive il perimetro funzionale desiderato, inclusi flussi UI e componenti esterni. Lo stato effettivamente implementato nel repository è riepilogato nella sezione 22; tale sezione prevale quando distingue requisiti, schema presente e funzionalità operative. Il repository contiene il livello dati Supabase, non l'app mobile descritta nei wireframe.
+> **Allineamento al codice (2026-11-01):** questo documento descrive il perimetro funzionale desiderato, inclusi flussi UI e componenti esterni. Lo stato effettivamente implementato nel repository è riepilogato nella sezione 22; tale sezione prevale quando distingue requisiti, schema presente e funzionalità operative. Il repository contiene anche un frontend web React/TypeScript e una shell Android Capacitor, non l'app mobile descritta nei wireframe.
 
 ---
 
@@ -48,6 +48,7 @@ Ruolo e perimetro sono separati: il ruolo stabilisce **cosa** l'utente può fare
 **RF-PRO-02 - Quote di proprietà.** Ogni Proprietario può essere associato a uno o più immobili con una percentuale di proprietà.  
 **RF-PRO-03 - Controllo quote.** Segnalazione quando la somma delle quote attive non è pari al 100%.  
 **RF-PRO-04 - Storicizzazione quote.** Percentuale, decorrenza e data fine opzionale devono essere storicizzate.
+**RF-PRO-05 - Modifica recapiti.** Nell'anagrafica di un Proprietario devono essere presenti e modificabili il numero di cellulare e l'e-mail; gli altri dati anagrafici sono in sola lettura nella funzione di modifica.
 
 ## 5. Gestione immobili e porzioni locabili
 **RF-IMM-01 - Anagrafica immobile.** Denominazione, tipologia, indirizzo, Comune, provincia, dati catastali, superficie, stato, note e Proprietari/quote.  
@@ -66,7 +67,10 @@ Ruolo e perimetro sono separati: il ruolo stabilisce **cosa** l'utente può fare
 
 ## 7. Gestione contratti di locazione
 **RF-CON-01 - Anagrafica contratto.** Il contratto collega immobile/porzione, Proprietari/locatori e uno o più Locatari e contiene decorrenza, scadenze, canone, periodicità, giorno pagamento, deposito cauzionale, regime fiscale, registrazione e note.  
-**RF-CON-02 - Tipologia contratto.** Tipologie configurabili: abitativo libero, abitativo concordato, transitorio, studenti, commerciale, comodato e altro.  
+**RF-CON-02 - Tipologia contratto.** Le tipologie di locazione selezionabili nel MVP sono abitativo libero 4+4, abitativo a canone concordato 3+2, abitativo transitorio da 1 a 18 mesi e commerciale 6+6. La durata iniziale non può essere inferiore ai minimi legali; per il transitorio è obbligatoria la motivazione dell'esigenza.
+**RF-CON-02A - Canone concordato.** Nel 3+2 il canone concordato è necessario per definizione. Per il transitorio l'applicazione segue l'accordo territoriale e le regole del Comune; l'opzione è registrata ma l'app non verifica l'accordo né i limiti locali. Il 4+4 resta a canone libero.
+**RF-CON-02B - Cedolare secca.** La cedolare secca è una scelta fiscale separata e opzionale per contratti abitativi eleggibili (inclusi 4+4, 3+2 e transitori); non è proposta per il commerciale. L'app registra la scelta ma non determina l'eleggibilità del locatore o dell'immobile.
+**RF-CAT-01 - Cataloghi di riferimento.** Le tipologie e i valori codificati usati da anagrafiche, contratti, fatturazione, pagamenti, spese, documenti, scadenze, notifiche e workflow sono centralizzati in un catalogo database con codice stabile, etichetta, ordinamento e stato attivo. I campi applicativi sono collegati al valore con una FK. Nel perimetro MVP il catalogo è aggiornato tramite migration, non da utenti.
 **RF-CON-03 - Stato gestionale.** Ogni Contratto deve avere uno stato gestionale **Attivo** o **Inattivo**. Lo stato gestionale è distinto dallo stato del ciclo di vita.  
 **RF-CON-03A - Ciclo di vita.** Il sistema può qualificare separatamente il ciclo di vita come Bozza, Da firmare, In corso, In scadenza, Disdetto, Cessato o Risolto anticipatamente.  
 **RF-CON-04 - Variazioni.** Storicizzazione di variazioni di canone/condizioni con efficacia, valore precedente, nuovo valore, motivazione e documentazione.  
@@ -601,6 +605,17 @@ Genera e verifica Rate
        ↓
 Genera Scadenze e regole di Notifica
 ```
+
+### Regole normative di riferimento per le tipologie MVP
+- **Abitativo 4+4:** durata iniziale minima di quattro anni e rinnovo di quattro anni, con le eccezioni previste dalla legge.
+- **Abitativo 3+2:** durata minima di tre anni e proroga biennale alla prima scadenza, con canone conforme all'accordo territoriale.
+- **Abitativo transitorio:** durata da uno a 18 mesi; la motivazione specifica è obbligatoria e per contratti superiori a 30 giorni va allegata documentazione idonea. Nei Comuni sopra 10.000 abitanti si applicano i limiti di canone dell'accordo territoriale.
+- **Commerciale 6+6:** durata minima di sei anni con rinnovo di sei anni per le attività previste; alcune attività, come quelle alberghiere, hanno discipline diverse.
+- **Cedolare secca:** scelta opzionale per le locazioni abitative in presenza dei requisiti di legge; non è un'opzione generale per i contratti commerciali. L'opzione comporta la rinuncia agli aggiornamenti del canone.
+
+Fonti normative consultate il 1 novembre 2026: [Legge 431/1998, articoli 2 e 5](https://www.normattiva.it/uri-res/N2Ls?urn:nir:stato:legge:1998-12-09;431!vig=2026-11-01), [Legge 392/1978, articoli 27 e 28](https://www.normattiva.it/uri-res/N2Ls?urn:nir:stato:legge:1978-07-27;392~art27), [D.M. 16 gennaio 2017, articolo 2 e Allegato B](https://www.gazzettaufficiale.it/eli/gu/2017/03/15/62/sg/pdf), [D.Lgs. 23/2011, articolo 3](https://www.normattiva.it/uri-res/N2Ls?urn:nir:stato:decreto.legislativo:2011-03-14;23~art3!vig=2026-11-01). Le regole di canone concordato e di eleggibilità fiscale possono dipendere dal Comune, dalla categoria dell'immobile e dalla posizione del locatore; il software non le certifica.
+
+Il catalogo dei codici usati dall'app è gestito nel database tramite `reference_catalogs` e `reference_catalog_items`. Include anche stati di workflow e ruoli codificati; i campi persistiti conservano i codici stabili, collegati ai rispettivi valori mediante chiavi esterne. Gli utenti applicativi possono leggere il catalogo ma non modificarlo; gli aggiornamenti sono versionati nelle migration.
 
 ## 16.19 Casi d'uso Canoni
 
@@ -2672,6 +2687,7 @@ La baseline funzionale **GestioneImmobili v1.0 può essere dichiarata congelata 
 - **Auditabilità:** autore e data almeno per modifiche sensibili.
 - **Affidabilità:** prevenzione duplicazioni nelle operazioni economiche e generazione rate; mantenimento storico.
 - **Scalabilità logica:** evoluzione da uso familiare a più patrimoni senza riprogettare le entità fondamentali.
+- **Moduli di modifica:** la modifica di Immobili e Proprietari, e delle future funzionalità, si apre come pagina intera e non come scheda o dialogo sovrapposto. Per il Proprietario, solo cellulare ed e-mail sono modificabili.
 
 ## 19. Modello concettuale sintetico
 ```text
@@ -2787,14 +2803,15 @@ La v1.3 non calcola automaticamente il prorata per periodi parziali. Il primo pe
 
 ---
 
-## 22. Stato di implementazione nel repository (2026-10-31)
+## 22. Stato di implementazione nel repository (2026-11-01)
 
 Questa sezione fotografa il codice presente, non certifica il completamento funzionale, la validazione in produzione o la presenza di un client UI. “Schema presente” indica che esistono tabelle/migrazioni; non implica che ogni flusso descritto sia disponibile all'utente.
 
 | Area | Stato nel repository | Confine attuale |
 |---|---|---|
-| Profili, Proprietari, accessi e inviti | Schema presente; helper e policy parziali | Non sono presenti RPC applicative per creare/accettare/revocare inviti o amministrare l'intero perimetro. |
-| Immobili, quote, porzioni, Locatari e Contratti | Schema presente | Non risultano implementati tutti i flussi CRUD, attivazione, variazione termini, controllo completo di quote/occupazioni descritti nei requisiti. |
+| Profili, Proprietari, accessi e inviti | Schema presente; helper, policy e frontend parziali | Creazione Proprietario e aggiornamento di solo email/cellulare disponibili via RPC; non sono presenti RPC applicative per creare/accettare/revocare inviti o amministrare l'intero perimetro. |
+| Immobili, quote, porzioni, Locatari e Contratti | Frontend e RPC parziali per il MVP | Sono implementati anagrafica Locatario per immobile, elenco Locatari/contratti, dettaglio e creazione contratto con attivazione esplicita, canone/periodicità/date/deposito e intero immobile o porzioni; la generazione rate considera solo contratti attivi. Un solo Locatario principale; non inclusi co-conduttori, modifica/archiviazione, variazioni storiche, prorata e copertura completa delle occupazioni. |
+| UX di modifica | Moduli web a pagina intera per Immobili e Proprietari | Solo cellulare ed email sono modificabili nell'anagrafica Proprietario; applicare lo stesso modello a pagina intera alle future funzioni. |
 | Canoni e Incassi | Implementazione database parziale/operativa | Generazione progressiva, vista saldo, registrazione pagamento totale e parziale e cessazione contratto hanno funzioni SQL; dashboard e UI non sono incluse. |
 | Spese e conguagli | Implementazione parziale | Esiste `create_expense_with_allocations`, con modalità quote/manuale e pagamento iniziale; non risultano le RPC generali di pagamento successivo, riallocazione e annullamento. |
 | Documenti | Flusso database/API parziale | Prenotazione, finalizzazione, registrazione esito scansione e autorizzazione download sono presenti; la scansione malware effettiva è esterna. |

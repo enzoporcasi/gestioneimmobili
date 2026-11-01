@@ -100,17 +100,10 @@ if (signedError || !signedData?.signedUrl) {
   )
 }
 
-const publicSupabaseUrl =
-  Deno.env.get('APP_PUBLIC_SUPABASE_URL')
-
-if (!publicSupabaseUrl) {
-  console.error('APP_PUBLIC_SUPABASE_URL is missing')
-
-  return jsonResponse(
-    { error: 'PUBLIC_URL_NOT_CONFIGURED' },
-    500,
-  )
-}
+const publicSupabaseUrl = env(
+  'APP_PUBLIC_SUPABASE_URL',
+  'SUPABASE_URL',
+)
 
 const internalSignedUrl = new URL(
   signedData.signedUrl,

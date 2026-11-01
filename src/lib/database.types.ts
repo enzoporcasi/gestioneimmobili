@@ -56,6 +56,65 @@ export type OwnerListRow = OwnerSummary & {
   province: string | null
 }
 
+export type ManageableProperty = {
+  property_id: string
+  internal_code: string
+  property_name: string
+  municipality: string
+}
+
+export type ManageableRentableSpace = {
+  space_id: string
+  space_code: string
+  space_name: string
+}
+
+export type ManageableTenant = {
+  tenant_id: string
+  property_id: string
+  tenant_type: string
+  first_name: string | null
+  last_name: string | null
+  business_name: string | null
+  tax_code: string | null
+  email: string | null
+  phone: string | null
+}
+
+export type ManageableContract = {
+  contract_id: string
+  internal_code: string
+  property_id: string
+  property_name: string
+  object_type: string
+  contract_type: string
+  management_status: string
+  lifecycle_status: string
+  start_date: string
+  end_date: string
+  security_deposit_amount: number | null
+  base_rent_amount: number
+  billing_frequency: string
+  due_day: number
+  tenant_id: string
+  tenant_name: string
+  tenant_email: string | null
+  tenant_phone: string | null
+  rentable_space_names: string
+  notes: string | null
+  agreed_rent_applied: boolean
+  tax_regime: string | null
+  transitory_reason: string | null
+}
+
+export type ReferenceCatalogItem = {
+  catalog_code: string
+  code: string
+  label: string
+  sort_order: number
+  is_active: boolean
+}
+
 type PropertyInsert = Omit<PropertyRow, 'id'> & { id?: string }
 type PropertyUpdate = Partial<Omit<PropertyRow, 'id'>>
 
@@ -165,6 +224,93 @@ export type Database = {
           p_notes?: string | null
         }
         Returns: { owner_id: string }
+      }
+      update_owner_contact_details: {
+        Args: {
+          p_owner_id: string
+          p_email?: string | null
+          p_phone?: string | null
+        }
+        Returns: {
+          owner_id: string
+          email: string | null
+          phone: string | null
+        }
+      }
+      list_manageable_properties: {
+        Args: Record<PropertyKey, never>
+        Returns: ManageableProperty[]
+      }
+      list_manageable_rentable_spaces: {
+        Args: { p_property_id: string }
+        Returns: ManageableRentableSpace[]
+      }
+      list_manageable_tenants: {
+        Args: Record<PropertyKey, never>
+        Returns: ManageableTenant[]
+      }
+      list_manageable_contracts: {
+        Args: Record<PropertyKey, never>
+        Returns: ManageableContract[]
+      }
+      create_tenant_for_property: {
+        Args: {
+          p_property_id: string
+          p_tenant_type: string
+          p_first_name?: string | null
+          p_last_name?: string | null
+          p_business_name?: string | null
+          p_tax_code?: string | null
+          p_email?: string | null
+          p_phone?: string | null
+          p_address_line1?: string | null
+          p_postal_code?: string | null
+          p_municipality?: string | null
+          p_province?: string | null
+          p_notes?: string | null
+        }
+        Returns: { tenant_id: string }
+      }
+      create_legal_contract_with_term: {
+        Args: {
+          p_property_id: string
+          p_internal_code: string
+          p_contract_type: string
+          p_start_date: string
+          p_end_date: string
+          p_base_rent_amount: number
+          p_billing_frequency: string
+          p_due_day: number
+          p_tenant_id: string
+          p_security_deposit_amount?: number | null
+          p_first_billing_period_start?: string | null
+          p_rentable_space_ids?: string[]
+          p_notes?: string | null
+          p_agreed_rent_applied?: boolean
+          p_cedolare_secca?: boolean
+          p_transitory_reason?: string | null
+        }
+        Returns: {
+          contract_id: string
+          management_status: string
+          agreed_rent_applied: boolean
+          tax_regime: string
+        }
+      }
+      set_contract_management_status: {
+        Args: {
+          p_contract_id: string
+          p_management_status: string
+        }
+        Returns: {
+          contract_id: string
+          management_status: string
+          lifecycle_status: string
+        }
+      }
+      list_reference_catalog_items: {
+        Args: Record<PropertyKey, never>
+        Returns: ReferenceCatalogItem[]
       }
       create_property_with_ownership: {
         Args: {

@@ -310,7 +310,7 @@ Casi 28/29 febbraio, anni 2000/2100, aprile 30, mesi 31.
 ## 16. Esito della specifica
 La v1.1 definisce il comportamento target per RPC, RLS, Storage, atomicità e test. Non è un inventario delle funzioni o policy già consegnate; la sezione 17 fornisce il confronto con le migration correnti.
 
-## 17. Stato implementato nel repository (2026-10-31)
+## 17. Stato implementato nel repository (2026-11-01)
 
 ### 17.1 RPC e helper presenti
 
@@ -319,10 +319,18 @@ La v1.1 definisce il comportamento target per RPC, RLS, Storage, atomicità e te
 | `calculate_due_date` | Implementata; gestisce il limite del giorno nei mesi corti. |
 | `create_owner_with_access` | Implementata; crea Owner persona fisica/giuridica e Accesso Administrator per l'attore nella stessa transazione; normalizza i dati, rifiuta codice fiscale/partita IVA duplicati e scrive audit. |
 | `list_manageable_owners` | Implementata; restituisce solo Proprietari attivi nel perimetro Manager dell'attore autenticato. |
+| `update_owner_contact_details` | Implementata; consente al Manager del Proprietario di modificare esclusivamente email e cellulare; valida i recapiti e registra audit. |
+| `list_manageable_properties`, `list_manageable_rentable_spaces` | Implementate; restituiscono immobili attivi e porzioni disponibili per cui l'attore ha ruolo Manager. |
+| `list_manageable_tenants` | Implementata; restituisce i Locatari associati agli immobili con accesso Manager. La relazione `tenant_property_accesses` definisce il perimetro del dato. |
+| `create_tenant_for_property` | Implementata; crea un Locatario e lo associa atomicamente a un immobile gestito; valida i dati essenziali e scrive audit. |
+| `list_manageable_contracts` | Implementata; restituisce contratti e dati principali per gli immobili nel perimetro Manager. |
+| `create_legal_contract_with_term` | Implementata per il MVP; consente nuove registrazioni 4+4, 3+2, transitorie abitative e commerciali 6+6, applica i controlli di durata, richiede la motivazione transitoria e registra le opzioni di canone concordato e regime fiscale. |
+| `list_reference_catalog_items` | Implementata; espone i valori delle tipologiche e degli stati applicativi. I valori sono gestiti con migration e non sono modificabili dagli utenti. |
+| `set_contract_management_status` | Implementata; attiva/disattiva un contratto Manager, serializza i controlli di occupazione per immobile e impedisce conflitti tra contratti attivi. |
 | `create_property_with_ownership` | Implementata; crea Property e quote atomiche, verifica input, accesso Manager a ogni Owner e totale quote pari al 100%; audit. |
-| `update_property_details` | Implementata; aggiorna i dati descrittivi e catastali per utenti Manager sulla Property; audit. Quote e Proprietari non sono modificabili con questa RPC. |
+| `update_property_details` | Implementata; aggiorna i dati descrittivi e catastali per utenti Manager sulla Property; audit. Quote e associazioni proprietarie non sono modificabili con questa RPC. |
 | `security.role_rank`, `can_access_owner`, `can_access_property`, `can_access_contract`, `can_access_installment`, `can_access_expense` | Implementati in `security`. |
-| `generate_due_installments` | Implementata per generazione progressiva; crea un record `billing_generation_runs`. |
+| `generate_due_installments` | Implementata per generazione progressiva esclusivamente sui contratti con stato gestionale `ACTIVE`; crea un record `billing_generation_runs`. |
 | `mark_installment_paid` | Implementata; registra un incasso per il residuo e lo alloca alla rata. |
 | `record_partial_installment_payment` | Implementata; valida l'importo rispetto al residuo e registra incasso/allocazione/audit in transazione. |
 | `terminate_contract` | Implementata; chiude contratto/locatari e marca `NOT_DUE` le rate future già generate secondo le regole SQL. |
@@ -333,7 +341,7 @@ La v1.1 definisce il comportamento target per RPC, RLS, Storage, atomicità e te
 | `authorize_document_download` | Implementata; autorizza una versione `AVAILABLE` e `CLEAN` e restituisce i metadati per la signed URL. |
 | Edge Function `create-document-download-url` | Implementata; verifica il chiamante, invoca la RPC autorizzativa e usa la chiave privilegiata solo per creare la signed URL. |
 
-Non risultano presenti RPC per gestione inviti/accessi, modifica/archiviazione Owner, sostituzione delle quote di una proprietà già creata, archiviazione proprietà, attivazione/variazione/estensione contratto, `mark_installment_lost`, gestione completa dei pagamenti/ripartizioni/annullamento spese, archiviazione documento, accettazioni legali o workflow DSR.
+Non risultano presenti RPC per gestione inviti/accessi, modifica/archiviazione Owner o Locatario, sostituzione delle quote di una proprietà già creata, archiviazione proprietà, modifica/variazione/estensione contratto, gestione dei co-conduttori, `mark_installment_lost`, gestione completa dei pagamenti/ripartizioni/annullamento spese, archiviazione documento, accettazioni legali o workflow DSR.
 
 ### 17.2 RLS e GRANT effettivi
 
@@ -343,6 +351,10 @@ Non risultano presenti RPC per gestione inviti/accessi, modifica/archiviazione O
 - L'aggiornamento diretto autenticato è limitato ai campi profilo indicati nei GRANT. Le operazioni di business mutanti disponibili passano dalle RPC con GRANT esplicito.
 - La creazione e modifica degli immobili usa le RPC `SECURITY DEFINER` della migration `20261031170000_property_management_rpc.sql`; l'esecuzione è concessa solo a `authenticated`. Non sono concessi INSERT/UPDATE diretti sulle tabelle `properties` e `property_ownerships`.
 - La registrazione Owner usa `create_owner_with_access` dalla migration `20261031171300_create_owner_with_access.sql`; il chiamante autenticato attivo riceve `ADMINISTRATOR` solo sul nuovo Owner. La creazione dell'Owner, dell'accesso e dell'audit è atomica; non sono concessi INSERT/UPDATE diretti sulle tabelle `owners` e `user_owner_accesses`.
+- Le RPC `create_tenant_for_property` e `create_legal_contract_with_term` richiedono un profilo attivo e ruolo Manager sull'immobile. La precedente `create_contract_with_term` non è più eseguibile dal ruolo `authenticated`; RLS su `tenants` e `tenant_property_accesses` limita la lettura ai perimetri associati; gli inserimenti e gli aggiornamenti di stato passano da RPC `SECURITY DEFINER`.
+- Il contratto 3+2 comporta necessariamente un canone conforme all'accordo territoriale. Per i transitori il canone concordato dipende dall'accordo locale e dalle condizioni previste per il Comune. La cedolare secca è una scelta opzionale distinta dalla tipologia, ma la sua eleggibilità dipende da locatore, immobile e contratto e non è verificata automaticamente dall'app.
+- `reference_catalogs` definisce le famiglie di lookup e `reference_catalog_items` i codici/etichette ordinati e attivi. Le colonne applicative mantengono i codici stabili e hanno una FK al record di catalogo sincronizzata da trigger; codici assenti non sono scrivibili. RLS consente la lettura autenticata, mentre le modifiche sono riservate alle migration.
+- L'attivazione blocca l'immobile durante il controllo di conflitto per serializzare le attivazioni concorrenti. La disattivazione non altera il ciclo di vita del contratto; la generazione delle rate è sospesa finché il contratto resta inattivo.
 - La creazione non accetta Owner fuori perimetro o inattivi e valida che le quote attive inserite totalizzino il 100%. Il client può elencare esclusivamente gli Owner attivi sui quali l'utente ha ruolo Manager o Administrator.
 - La migration di Storage crea un bucket privato e una policy `INSERT` per oggetti che corrispondono a una versione `RESERVED` prenotata dall'utente autenticato. Non è prevista una policy di SELECT Storage diretta; il download passa dalla Edge Function.
 - Le funzioni elencate nella specifica target ma non presenti nelle migration non devono essere considerate callable né sicure per uso applicativo.
@@ -357,6 +369,7 @@ Non risultano presenti RPC per gestione inviti/accessi, modifica/archiviazione O
 - La matrice RLS della sezione 9 è il target desiderato, non la descrizione delle policy effettivamente presenti.
 - I casi di concorrenza, rollback, autorizzazione Storage e performance elencati nella sezione 14 sono criteri di verifica; la presenza dei test nel repository non attesta che ogni caso sia già validato nell'ambiente target.
 - `supabase/tests/012_property_management_rpc.sql` copre registrazione Owner, accesso del creatore, normalizzazione e duplicati, insieme a accesso per ruolo/perimetro, creazione/modifica immobili e validazione delle quote; le fixture vengono annullate con rollback.
+- `supabase/tests/014_contract_management.sql` copre il flusso Locatario/Contratto, i controlli perimetro e sovrapposizione e la generazione rate esclusivamente dopo l'attivazione; le fixture vengono annullate con rollback.
 
 ### 17.4 Fonte autorevole e validazione
 

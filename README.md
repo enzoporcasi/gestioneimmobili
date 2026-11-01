@@ -48,6 +48,17 @@ Le migration vanno eseguite in ordine lessicografico. Il set attuale include:
    - `20261025125839_fix_terminate_contract_digest.sql`
    - `20261031170000_property_management_rpc.sql`
    - `20261031171300_create_owner_with_access.sql`
+   - `20261101092300_update_owner_contact_details.sql`
+   - `20261101120000_contract_management.sql`
+   - `20261101130000_serialize_contract_activation.sql`
+   - `20261101133000_preserve_contract_lifecycle.sql`
+   - `20261101150000_legal_contract_types.sql`
+   - `20261101160000_reference_catalogs.sql`
+   - `20261101161000_limit_legacy_contract_catalog_items.sql`
+   - `20261101162000_restrict_contract_type_options.sql`
+   - `20261101163000_preserve_legacy_contract_codes.sql`
+   - `20261101164000_add_early_terminated_catalog_status.sql`
+   - `20261101165000_add_pending_scan_catalog_item.sql`
 
 ## Funzionalità presenti nel codice
 
@@ -56,10 +67,17 @@ Le migration vanno eseguite in ordine lessicografico. Il set attuale include:
 - accessi per property/owner con ruoli `VIEWER`, `MANAGER`, `ADMINISTRATOR`
 - helper `security.can_access_*` per controllo autorizzazioni centralizzato
 - `create_owner_with_access()` crea un Proprietario e assegna atomicamente il ruolo `ADMINISTRATOR` all'utente autenticato; valida il tipo soggetto e i campi obbligatori, normalizza i codici identificativi, rifiuta duplicati e scrive audit
+- `update_owner_contact_details()` aggiorna esclusivamente email e cellulare per utenti Manager del Proprietario e registra l'operazione nell'audit
+- `reference_catalogs` e `reference_catalog_items` centralizzano classificazioni e stati del dominio; le tabelle applicative hanno riferimenti FK ai valori e trigger di sincronizzazione. La lettura avviene tramite RLS/RPC; il catalogo è modificato con migration, non da utenti applicativi.
 
 ### Gestione immobili e contratti
 - `properties`, `property_ownerships`, `rentable_spaces`
+- Tipologie Immobile, porzioni, Proprietario/Locatario, Contratto e periodicità vengono caricate dal catalogo centrale invece che da liste duplicate nel frontend.
 - `list_manageable_owners()` per esporre al client solo i Proprietari attivi gestibili dall'utente
+- RPC per elencare immobili, porzioni, Locatari e contratti nel perimetro Manager
+- `create_tenant_for_property()` crea una scheda Locatario associata all'immobile gestito e registra l'operazione nell'audit
+- `create_legal_contract_with_term()` crea atomicamente contratto inattivo e condizioni economiche; limita le nuove registrazioni a 4+4, 3+2, transitorio abitativo e commerciale 6+6, richiede motivazione per il transitorio e registra canone concordato/regime fiscale scelti
+- `set_contract_management_status()` attiva/disattiva il contratto con controllo dei conflitti; la generazione delle rate considera solo i contratti attivi
 - `create_property_with_ownership()` crea Immobile e quote atomiche; richiede ruolo Manager su tutti i Proprietari e totale quote pari al 100%
 - `update_property_details()` modifica i dati descrittivi solo per utenti con ruolo Manager sulla Property
 - `contracts`, `contract_terms`, `contract_tenants`, `contract_changes`
@@ -79,6 +97,7 @@ Le migration vanno eseguite in ordine lessicografico. Il set attuale include:
 - workflow documentale `RESERVED` → `PENDING_SCAN` → `AVAILABLE`/`REJECTED`/`FAILED`
 - supporto a link documentali verso proprietari, immobili, contratti, rate, incassi, spese, porzioni e scadenze
 - audit event sulle operazioni critiche
+- la Edge Function `create-document-download-url` usa `APP_PUBLIC_SUPABASE_URL` come override opzionale e `SUPABASE_URL` come fallback per l'host delle signed URL
 
 ### Sicurezza e robustezza
 - RLS abilitata sulle tabelle applicative; le policy esplicite non coprono ancora tutta la matrice target
@@ -107,7 +126,7 @@ Copy-Item .env.example .env
 ```
 
 Poi impostare `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` nel file `.env`.
-Il frontend web è basato su React, TypeScript e Vite. Include autenticazione email/password con Supabase Auth, panoramica, elenco e dettaglio immobili, creazione/modifica tramite RPC protette e una sezione Proprietari con elenco filtrabile e form per persone fisiche e giuridiche. La creazione del Proprietario assegna l'accesso amministrativo al creatore; l'Immobile richiede quote che totalizzino il 100%. La modifica della struttura delle quote non è ancora implementata. Il seed locale fornisce un Proprietario demo accessibile a `utente.a@test.local`. Non inserire mai `service_role` o secret key nelle variabili `VITE_*`.
+Il frontend web è basato su React, TypeScript e Vite. Include autenticazione email/password con Supabase Auth, panoramica, immobili, Proprietari, Locatari e contratti. Il MVP contratti consente di creare anagrafiche Locatario e contratti per intero immobile o porzioni, con tipologie abitative 4+4, 3+2 e transitorie e commerciali 6+6; richiede la motivazione transitoria, registra l'eventuale canone concordato e la scelta opzionale della cedolare secca per contratti abitativi. Il 3+2 richiede per definizione il canone concordato; il rispetto dell'accordo territoriale e i requisiti fiscali devono essere verificati dall'utente. I contratti nascono inattivi e vanno attivati esplicitamente per generare rate. Ogni contratto ha un solo Locatario principale; modifica/archiviazione contratti, co-conduttori, variazioni storiche e prorata non sono inclusi. Per un Proprietario esistente sono modificabili solo email e cellulare. I moduli di modifica e inserimento di Immobili, Proprietari, Locatari e contratti occupano una pagina intera, non una scheda sovrapposta; la stessa regola vale per le future funzionalità. L'Immobile richiede quote che totalizzino il 100%; la modifica della struttura delle quote non è ancora implementata. Il seed locale fornisce un Proprietario demo accessibile a `utente.a@test.local`. Non inserire mai `service_role` o secret key nelle variabili `VITE_*`.
 
 ## App Android
 
