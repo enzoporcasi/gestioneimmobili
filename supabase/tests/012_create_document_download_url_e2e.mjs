@@ -43,7 +43,7 @@ try {
   ok((await admin.from('property_ownerships').insert({ id:ids.ownership, property_id:ids.property, owner_id:ids.owner, ownership_percentage:100, valid_from:new Date().toISOString().slice(0,10) })).error, 'ownership')
 
   ok((await a.auth.signInWithPassword({ email:'utente.a@test.local', password:'TestUserA-2026!' })).error, 'login A')
-  const reserve = await a.rpc('reserve_document_upload', { p_entity_type:'PROPERTY', p_entity_id:ids.property, p_title:'Edge Download Test', p_category:'TEST', p_original_file_name:'edge.pdf', p_declared_mime_type:'application/pdf', p_expected_size_bytes:pdf.length, p_sensitivity:'STANDARD', p_link_role:'TEST' }); ok(reserve.error, 'reserve')
+  const reserve = await a.rpc('reserve_document_upload', { p_entity_type:'PROPERTY', p_entity_id:ids.property, p_title:'Edge Download Test', p_category:'CONTRACT', p_original_file_name:'edge.pdf', p_declared_mime_type:'application/pdf', p_expected_size_bytes:pdf.length, p_sensitivity:'STANDARD', p_link_role:'TEST' }); ok(reserve.error, 'reserve')
   docId=reserve.data.document_id; versionId=reserve.data.document_version_id; path=reserve.data.storage_path
   ok((await a.storage.from('property-documents').upload(path,pdf,{contentType:'application/pdf',upsert:false})).error,'upload')
   ok((await a.rpc('finalize_document_upload',{p_document_version_id:versionId,p_actual_mime_type:'application/pdf',p_actual_size_bytes:pdf.length,p_checksum:checksum})).error,'finalize')

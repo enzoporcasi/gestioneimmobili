@@ -12,10 +12,13 @@ import { isSupabaseConfigured, supabase } from './lib/supabase'
 import type {
   Json,
   ManageableContract,
+  ManageableDocument,
+  ManageableDocumentEntity,
   ManageableProperty,
   ManageableRentableSpace,
   ManageableTenant,
   ManageableOwner,
+  DocumentCategoryOption,
   OwnerListRow,
   OwnerSummary,
   PropertyOwnershipRow,
@@ -23,12 +26,11 @@ import type {
   ReferenceCatalogItem,
 } from './lib/database.types'
 
-type Page = 'overview' | 'properties' | 'owners' | 'contracts' | 'tenants'
+type Page = 'overview' | 'properties' | 'owners' | 'contracts' | 'tenants' | 'documents'
 
 const unavailableSections = [
   'Canoni e incassi',
   'Spese',
-  'Documenti',
   'Scadenze',
 ]
 
@@ -36,6 +38,41 @@ type ReferenceCatalogState = {
   items: ReferenceCatalogItem[]
   loading: boolean
   error: string
+}
+
+type DocumentEntityType = 'OWNER' | 'PROPERTY' | 'TENANT' | 'CONTRACT'
+
+type DocumentUploadReservation = {
+  document_id: string
+  document_version_id: string
+  bucket: string
+  storage_path: string
+}
+
+type DocumentAttachmentDraft = {
+  id: string
+  category: string
+  file: File | null
+  sensitivity: string
+  reservation: DocumentUploadReservation | null
+  status: 'ready' | 'uploading' | 'uploaded' | 'error'
+  error: string
+}
+
+type DocumentAttachmentState = {
+  categories: DocumentCategoryOption[]
+  drafts: DocumentAttachmentDraft[]
+  loading: boolean
+  error: string
+  uploading: boolean
+  addDraft: () => void
+  updateCategory: (id: string, category: string) => void
+  selectFile: (id: string, file: File | null) => Promise<void>
+  removeDraft: (id: string) => void
+  clearUploadedDrafts: () => void
+  clearUnreservedDrafts: () => void
+  cancelReservedUploads: () => Promise<boolean>
+  uploadForEntity: (entityId: string) => Promise<boolean>
 }
 
 const ReferenceCatalogContext = createContext<ReferenceCatalogState>({
@@ -56,6 +93,454 @@ function referenceCatalogItems(
   return items.filter((item) =>
     item.catalog_code === catalogCode
     && (item.is_active || item.code === includeInactiveCode),
+  )
+}
+
+function uploadReservation(data: Json | null): DocumentUploadReservation | null {
+  if (
+    typeof data !== 'object'
+    || data === null
+    || Array.isArray(data)
+    || typeof data.document_id !== 'string'
+    || typeof data.document_version_id !== 'string'
+    || typeof data.bucket !== 'string'
+    || typeof data.storage_path !== 'string'
+  ) {
+    return null
+  }
+  return {
+    document_id: data.document_id,
+    document_version_id: data.document_version_id,
+    bucket: data.bucket,
+    storage_path: data.storage_path,
+  }
+}
+
+async function supportedDocumentMimeType(file: File): Promise<string | null> {
+  if (file.size <= 0 || file.size > 20 * 1024 * 1024) return null
+  const header = new Uint8Array(await file.slice(0, 8).arrayBuffer())
+  if (header.length >= 5 && new TextDecoder().decode(header.slice(0, 5)) === '%PDF-') {
+    return 'application/pdf'
+  }
+  if (header.length >= 3 && header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff) {
+    return 'image/jpeg'
+  }
+  if (
+    header.length >= 8
+    && header[0] === 0x89
+    && header[1] === 0x50
+    && header[2] === 0x4e
+    && header[3] === 0x47
+    && header[4] === 0x0d
+    && header[5] === 0x0a
+    && header[6] === 0x1a
+    && header[7] === 0x0a
+  ) {
+    return 'image/png'
+  }
+  return null
+}
+
+function useDocumentAttachments(entityType: DocumentEntityType): DocumentAttachmentState {
+  const [categories, setCategories] = useState<DocumentCategoryOption[]>([])
+  const [drafts, setDrafts] = useState<DocumentAttachmentDraft[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [uploading, setUploading] = useState(false)
+
+  useEffect(() => {
+    if (!supabase) {
+      setLoading(false)
+      setError('Connessione al database non disponibile.')
+      return
+    }
+    let active = true
+    setLoading(true)
+    setError('')
+    void supabase.rpc('list_document_categories', { p_entity_type: entityType }).then(({ data, error: categoryError }) => {
+      if (!active) return
+      if (categoryError) {
+        setError('Non è stato possibile caricare le tipologie dei documenti.')
+        console.error('Document category query failed', categoryError)
+      } else {
+        setCategories(data ?? [])
+      }
+      setLoading(false)
+    })
+    return () => {
+      active = false
+    }
+  }, [entityType])
+
+  function addDraft() {
+    const category = categories[0]
+    if (!category) {
+      setError('Non sono disponibili tipologie di documento per questa entità.')
+      return
+    }
+    setDrafts((current) => [...current, {
+      id: crypto.randomUUID(),
+      category: category.code,
+      file: null,
+      sensitivity: category.minimum_sensitivity,
+      reservation: null,
+      status: 'ready',
+      error: '',
+    }])
+    setError('')
+  }
+
+  function updateCategory(id: string, categoryCode: string) {
+    const category = categories.find((item) => item.code === categoryCode)
+    if (!category) return
+    setDrafts((current) => current.map((draft) =>
+      draft.id === id && !draft.reservation
+        ? {
+            ...draft,
+            category: category.code,
+            sensitivity: category.minimum_sensitivity,
+            error: '',
+          }
+        : draft,
+    ))
+  }
+
+  async function selectFile(id: string, file: File | null) {
+    if (!file) return
+    const mimeType = await supportedDocumentMimeType(file)
+    if (!mimeType) {
+      setDrafts((current) => current.map((draft) =>
+        draft.id === id
+          ? {
+              ...draft,
+              file: null,
+              status: 'error',
+              error: file.size > 20 * 1024 * 1024
+                ? 'Il file supera il limite di 20 MB.'
+                : 'Formato non supportato: scegli un PDF, JPG o PNG valido.',
+            }
+          : draft,
+      ))
+      return
+    }
+    setDrafts((current) => current.map((draft) =>
+      draft.id === id && !draft.reservation
+        ? { ...draft, file, status: 'ready', error: '' }
+        : draft,
+    ))
+  }
+
+  function removeDraft(id: string) {
+    setDrafts((current) => current.filter((draft) =>
+      draft.id !== id || draft.reservation !== null || draft.status === 'uploaded',
+    ))
+  }
+
+  function clearUploadedDrafts() {
+    setDrafts((current) => current.filter((draft) => draft.status !== 'uploaded'))
+  }
+
+  function clearUnreservedDrafts() {
+    setDrafts((current) => current.filter((draft) => draft.reservation !== null))
+  }
+
+  async function cancelReservedUploads(): Promise<boolean> {
+    if (!supabase) {
+      setError('Connessione al database non disponibile.')
+      return false
+    }
+
+    const reservations = drafts.filter((draft) =>
+      draft.reservation !== null && draft.status !== 'uploaded',
+    )
+    if (reservations.length === 0) return true
+
+    setUploading(true)
+    setError('')
+    for (const draft of reservations) {
+      const reservation = draft.reservation
+      if (!reservation) continue
+      const { error: cancelError } = await supabase.rpc('cancel_document_upload', {
+        p_document_version_id: reservation.document_version_id,
+      })
+      if (cancelError) {
+        console.error('Reserved document upload cancellation failed', cancelError)
+        setError('Non è stato possibile annullare un caricamento incompleto. La schermata resta aperta: riprova.')
+        setUploading(false)
+        return false
+      }
+      setDrafts((current) => current.map((item) =>
+        item.id === draft.id
+          ? { ...item, reservation: null, status: 'ready', error: '' }
+          : item,
+      ))
+    }
+    setUploading(false)
+    return true
+  }
+
+  async function uploadForEntity(entityId: string): Promise<boolean> {
+    if (!supabase) {
+      setError('Connessione al database non disponibile.')
+      return false
+    }
+    setUploading(true)
+    setError('')
+    let success = true
+
+    for (const draft of drafts) {
+      if (draft.status === 'uploaded') continue
+      if (!draft.file) {
+        setDrafts((current) => current.map((item) =>
+          item.id === draft.id ? { ...item, status: 'error', error: 'Seleziona un file oppure rimuovi questa riga.' } : item,
+        ))
+        success = false
+        continue
+      }
+
+      let reservation = draft.reservation
+      try {
+      const mimeType = await supportedDocumentMimeType(draft.file)
+      if (!mimeType) {
+        setDrafts((current) => current.map((item) =>
+          item.id === draft.id ? { ...item, status: 'error', error: 'Il file non è più valido o supera 20 MB.' } : item,
+        ))
+        success = false
+        continue
+      }
+
+      setDrafts((current) => current.map((item) =>
+        item.id === draft.id ? { ...item, status: 'uploading', error: '' } : item,
+      ))
+
+      if (!reservation) {
+        const { data, error: reserveError } = await supabase.rpc('reserve_document_upload', {
+          p_entity_type: entityType,
+          p_entity_id: entityId,
+          p_title: draft.file.name,
+          p_category: draft.category,
+          p_original_file_name: draft.file.name,
+          p_declared_mime_type: mimeType,
+          p_expected_size_bytes: draft.file.size,
+          p_sensitivity: draft.sensitivity,
+        })
+        if (reserveError) {
+          console.error('Document upload reservation failed', reserveError)
+          setDrafts((current) => current.map((item) =>
+            item.id === draft.id
+              ? { ...item, status: 'error', error: 'Non è stato possibile preparare il caricamento. Riprova.' }
+              : item,
+          ))
+          success = false
+          continue
+        }
+        reservation = uploadReservation(data)
+        if (!reservation) {
+          console.error('Document upload reservation returned an invalid response', data)
+          setDrafts((current) => current.map((item) =>
+            item.id === draft.id
+              ? { ...item, status: 'error', error: 'La risposta del server non è valida. Riprova.' }
+              : item,
+          ))
+          success = false
+          continue
+        }
+        setDrafts((current) => current.map((item) =>
+          item.id === draft.id ? { ...item, reservation } : item,
+        ))
+      }
+
+      const { error: storageError } = await supabase.storage
+        .from(reservation.bucket)
+        .upload(reservation.storage_path, draft.file, {
+          contentType: mimeType,
+          upsert: false,
+        })
+
+      let checksum: string | null = null
+      if (globalThis.crypto?.subtle) {
+        const fileBytes = await draft.file.arrayBuffer()
+        const digest = await globalThis.crypto.subtle.digest('SHA-256', fileBytes)
+        checksum = Array.from(new Uint8Array(digest))
+          .map((byte) => byte.toString(16).padStart(2, '0'))
+          .join('')
+      }
+
+      const { data: finalizeData, error: finalizeError } = await supabase.rpc('finalize_document_upload', {
+        p_document_version_id: reservation.document_version_id,
+        p_actual_mime_type: mimeType,
+        p_actual_size_bytes: draft.file.size,
+        p_checksum: checksum,
+      })
+      if (finalizeError || typeof finalizeData !== 'object' || finalizeData === null
+        || Array.isArray(finalizeData) || finalizeData.upload_status !== 'PENDING_SCAN') {
+        if (storageError) console.error('Document Storage upload failed', storageError)
+        if (finalizeError) console.error('Document upload finalization failed', finalizeError)
+        setDrafts((current) => current.map((item) =>
+          item.id === draft.id
+            ? {
+                ...item,
+                status: 'error',
+                reservation,
+                error: 'Caricamento non completato. La registrazione è stata salvata; puoi riprovare.',
+              }
+            : item,
+        ))
+        success = false
+        continue
+      }
+
+      setDrafts((current) => current.map((item) =>
+        item.id === draft.id
+          ? {
+              ...item,
+              status: 'uploaded',
+              reservation,
+              error: '',
+            }
+          : item,
+      ))
+      } catch (uploadError) {
+        console.error('Unexpected document upload error', uploadError)
+        setDrafts((current) => current.map((item) =>
+          item.id === draft.id
+            ? {
+                ...item,
+                status: 'error',
+                reservation,
+                error: 'Si è verificato un errore durante il caricamento. Riprova.',
+              }
+            : item,
+        ))
+        success = false
+      }
+    }
+
+    setUploading(false)
+    return success
+  }
+
+  return {
+    categories,
+    drafts,
+    loading,
+    error,
+    uploading,
+    addDraft,
+    updateCategory,
+    selectFile,
+    removeDraft,
+    clearUploadedDrafts,
+    clearUnreservedDrafts,
+    cancelReservedUploads,
+    uploadForEntity,
+  }
+}
+
+async function cancelEditorWithAttachments(
+  attachments: DocumentAttachmentState,
+  onCancel: () => void,
+  setEditorError: (message: string) => void,
+) {
+  const hasReservedUploads = attachments.drafts.some((draft) =>
+    draft.reservation !== null && draft.status !== 'uploaded',
+  )
+  if (
+    hasReservedUploads
+    && !window.confirm('Ci sono caricamenti incompleti. Vuoi annullarli e uscire?')
+  ) {
+    return
+  }
+  if (!await attachments.cancelReservedUploads()) {
+    setEditorError('Non è stato possibile annullare i caricamenti incompleti. Riprova prima di uscire.')
+    return
+  }
+  onCancel()
+}
+
+function DocumentAttachmentFields({
+  attachments,
+  disabled,
+}: {
+  attachments: DocumentAttachmentState
+  disabled: boolean
+}) {
+  const canAdd = !attachments.loading && !attachments.error && attachments.categories.length > 0
+  return (
+    <div className="form-section">
+      <h3>Documenti allegati</h3>
+      <p>Facoltativi. PDF, JPG o PNG fino a 20 MB. I file vengono verificati prima di essere resi disponibili.</p>
+      {attachments.loading && <p className="detail-muted">Caricamento tipologie documentali…</p>}
+      {attachments.error && <p className="form-error" role="alert">{attachments.error}</p>}
+      {attachments.drafts.map((draft, index) => (
+        <div className="document-attachment-row" key={draft.id}>
+          <FormField label="Tipologia" required>
+            <select
+              disabled={disabled || Boolean(draft.reservation) || draft.status === 'uploaded'}
+              onChange={(event) => attachments.updateCategory(draft.id, event.target.value)}
+              required
+              value={draft.category}
+            >
+              {attachments.categories.map((category) => (
+                <option key={category.code} value={category.code}>{category.label}</option>
+              ))}
+            </select>
+          </FormField>
+          <div className="document-file-actions">
+            <span className="document-file-name">{draft.file?.name ?? 'Nessun file selezionato'}</span>
+            <label className="secondary-button document-file-button">
+              Seleziona file
+              <input
+                accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png"
+                aria-label={`Seleziona file per allegato ${index + 1}`}
+                disabled={disabled || Boolean(draft.reservation) || draft.status === 'uploaded'}
+                onChange={(event) => {
+                  void attachments.selectFile(draft.id, event.currentTarget.files?.[0] ?? null)
+                  event.currentTarget.value = ''
+                }}
+                type="file"
+              />
+            </label>
+            <label className="secondary-button document-file-button">
+              Scatta foto
+              <input
+                accept="image/jpeg,image/png"
+                aria-label={`Scatta foto per allegato ${index + 1}`}
+                capture="environment"
+                disabled={disabled || Boolean(draft.reservation) || draft.status === 'uploaded'}
+                onChange={(event) => {
+                  void attachments.selectFile(draft.id, event.currentTarget.files?.[0] ?? null)
+                  event.currentTarget.value = ''
+                }}
+                type="file"
+              />
+            </label>
+            {draft.status === 'uploaded' ? (
+              <span className="document-upload-status">Caricato · in attesa di scansione</span>
+            ) : !draft.reservation ? (
+              <button
+                className="text-button"
+                disabled={disabled}
+                onClick={() => attachments.removeDraft(draft.id)}
+                type="button"
+              >
+                Rimuovi
+              </button>
+            ) : null}
+          </div>
+          {draft.error && <p className="form-error document-upload-error" role="alert">{draft.error}</p>}
+        </div>
+      ))}
+      <button
+        className="secondary-button document-add-button"
+        disabled={disabled || !canAdd}
+        onClick={attachments.addDraft}
+        type="button"
+      >
+        + Aggiungi documento
+      </button>
+      <p className="detail-muted">Per ora puoi scegliere file dal dispositivo o scattare una foto da mobile; le integrazioni dirette con i cloud arriveranno in una fase successiva.</p>
+    </div>
   )
 }
 
@@ -485,6 +970,13 @@ function Workspace({
           </button>
           <div className="nav-divider" />
           <span className="nav-section-label">OPERATIVITÀ</span>
+          <button
+            className={`nav-item${page === 'documents' ? ' nav-item-active' : ''}`}
+            onClick={() => setPage('documents')}
+          >
+            <span className="nav-symbol">▧</span>
+            Documenti
+          </button>
           {unavailableSections.map((section) => (
             <div className="nav-item nav-item-disabled" key={section}>
               <span className="nav-symbol">○</span>
@@ -522,7 +1014,9 @@ function Workspace({
                     ? 'Proprietari'
                     : page === 'contracts'
                       ? 'Contratti'
-                      : 'Locatari'}
+                      : page === 'tenants'
+                        ? 'Locatari'
+                        : 'Documenti'}
             </strong>
           </div>
           <div className="topbar-user">
@@ -598,7 +1092,9 @@ function Workspace({
                       ? 'Proprietari'
                       : page === 'contracts'
                         ? 'Contratti'
-                        : 'Locatari'}
+                        : page === 'tenants'
+                          ? 'Locatari'
+                          : 'Documenti'}
               </h1>
               <p>
                 {page === 'overview'
@@ -609,7 +1105,9 @@ function Workspace({
                       ? 'Gestisci i Proprietari presenti nel tuo perimetro di accesso.'
                       : page === 'contracts'
                         ? 'Gestisci i contratti collegati agli immobili e ai Locatari.'
-                        : 'Consulta i Locatari collegati agli immobili che gestisci.'}
+                        : page === 'tenants'
+                          ? 'Consulta i Locatari collegati agli immobili che gestisci.'
+                          : 'Allega e consulta i documenti dei Proprietari, degli immobili, dei Locatari e dei contratti.'}
               </p>
             </div>
             <div className="today-label">
@@ -659,6 +1157,8 @@ function Workspace({
               onPageChange={setPage}
               page={page}
             />
+          ) : page === 'documents' ? (
+            <DocumentsManagementPanel />
           ) : (
           <section className="content-card">
             <div className="card-heading">
@@ -1065,6 +1565,268 @@ function OwnersManagementPanel({
   )
 }
 
+function DocumentsManagementPanel() {
+  const [entityType, setEntityType] = useState<DocumentEntityType>('PROPERTY')
+  const [entityId, setEntityId] = useState('')
+  const [entities, setEntities] = useState<ManageableDocumentEntity[]>([])
+  const [documents, setDocuments] = useState<ManageableDocument[]>([])
+  const [loading, setLoading] = useState(true)
+  const [uploading, setUploading] = useState(false)
+  const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
+  const attachments = useDocumentAttachments(entityType)
+
+  async function loadDocuments() {
+    if (!supabase) {
+      setError('Connessione al database non disponibile.')
+      setLoading(false)
+      return
+    }
+    setError('')
+    const [entityResult, documentResult] = await Promise.all([
+      supabase.rpc('list_manageable_document_entities'),
+      supabase.rpc('list_manageable_documents'),
+    ])
+    const errors = [entityResult.error, documentResult.error].filter(Boolean)
+    if (errors.length > 0) {
+      setError('Non è stato possibile caricare entità e documenti.')
+      console.error('Document workspace queries failed', errors)
+    } else {
+      setEntities(entityResult.data ?? [])
+      setDocuments(documentResult.data ?? [])
+    }
+    setLoading(false)
+  }
+
+  useEffect(() => {
+    void loadDocuments()
+  }, [])
+
+  useEffect(() => {
+    setEntityId('')
+    setMessage('')
+  }, [entityType])
+
+  async function handleUpload() {
+    setError('')
+    setMessage('')
+    if (!entityId) {
+      setError('Seleziona l’entità a cui collegare i documenti.')
+      return
+    }
+    if (attachments.drafts.length === 0 || attachments.drafts.some((draft) => !draft.file)) {
+      setError('Aggiungi almeno un documento e seleziona un file per ogni riga.')
+      return
+    }
+    setUploading(true)
+    const uploaded = await attachments.uploadForEntity(entityId)
+    setUploading(false)
+    if (!uploaded) {
+      setError('Alcuni documenti non sono stati completati. Correggi o riprova le righe indicate.')
+      return
+    }
+    const count = attachments.drafts.length
+    attachments.clearUploadedDrafts()
+    setMessage(`${count} ${count === 1 ? 'documento caricato' : 'documenti caricati'}. In attesa delle verifiche di sicurezza.`)
+    await loadDocuments()
+  }
+
+  async function clearDocumentSelection() {
+    const hasReservedUploads = attachments.drafts.some((draft) =>
+      draft.reservation !== null && draft.status !== 'uploaded',
+    )
+    if (
+      hasReservedUploads
+      && !window.confirm('Ci sono caricamenti incompleti. Vuoi annullarli e pulire la selezione?')
+    ) {
+      return
+    }
+    if (!await attachments.cancelReservedUploads()) {
+      setError('Non è stato possibile annullare i caricamenti incompleti.')
+      return
+    }
+    attachments.clearUnreservedDrafts()
+  }
+
+  async function openDocument(document: ManageableDocument) {
+    if (!supabase) {
+      setError('Connessione al database non disponibile.')
+      return
+    }
+    const popup = window.open('about:blank', '_blank')
+    if (!popup) {
+      setError('Il browser ha bloccato l’apertura del documento. Consenti i popup e riprova.')
+      return
+    }
+    popup.opener = null
+    const { data, error: downloadError } = await supabase.functions.invoke(
+      'create-document-download-url',
+      { body: { document_version_id: document.document_version_id } },
+    )
+    if (downloadError || typeof data?.signed_url !== 'string') {
+      popup.close()
+      setError('Il documento non è disponibile per il download.')
+      console.error('Document download URL request failed', downloadError)
+      return
+    }
+    let signedUrl: URL
+    try {
+      signedUrl = new URL(data.signed_url)
+    } catch (urlError) {
+      popup.close()
+      setError('Il server ha restituito un collegamento non valido.')
+      console.error('Document download URL is invalid', urlError)
+      return
+    }
+    if (!['https:', 'http:'].includes(signedUrl.protocol)) {
+      popup.close()
+      setError('Il server ha restituito un collegamento non sicuro.')
+      return
+    }
+    popup.location.href = signedUrl.toString()
+  }
+
+  const entityTypeLabels: Record<DocumentEntityType, string> = {
+    OWNER: 'Proprietario',
+    PROPERTY: 'Immobile',
+    TENANT: 'Locatario',
+    CONTRACT: 'Contratto',
+  }
+  const visibleEntities = entities.filter((entity) => entity.entity_type === entityType)
+  const hasPendingDocuments = attachments.drafts.some((draft) => draft.status === 'error')
+
+  return (
+    <div className="document-workspace">
+      <section className="content-card">
+        <div className="card-heading">
+          <div>
+            <h2>Allega documenti</h2>
+            <p>Collega i file a un’entità già presente nel tuo perimetro di gestione.</p>
+          </div>
+        </div>
+        <div className="document-entity-selector">
+          <FormField label="Tipo di entità" required>
+            <select
+              disabled={attachments.drafts.length > 0 || uploading}
+              onChange={(event) => setEntityType(event.target.value as DocumentEntityType)}
+              value={entityType}
+            >
+              {(Object.keys(entityTypeLabels) as DocumentEntityType[]).map((type) => (
+                <option key={type} value={type}>{entityTypeLabels[type]}</option>
+              ))}
+            </select>
+          </FormField>
+          <FormField label={entityTypeLabels[entityType]} required>
+            <select
+              disabled={loading || visibleEntities.length === 0 || attachments.drafts.length > 0 || uploading}
+              onChange={(event) => setEntityId(event.target.value)}
+              required
+              value={entityId}
+            >
+              <option value="">Seleziona…</option>
+              {visibleEntities.map((entity) => (
+                <option key={entity.entity_id} value={entity.entity_id}>{entity.display_name}</option>
+              ))}
+            </select>
+          </FormField>
+        </div>
+        {loading ? (
+          <LoadingScreen label="Caricamento entità e documenti…" compact />
+        ) : visibleEntities.length === 0 ? (
+          <p className="detail-muted">Non hai entità di questo tipo nel tuo perimetro Manager.</p>
+        ) : null}
+        <DocumentAttachmentFields
+          attachments={attachments}
+          disabled={uploading || !entityId}
+        />
+        {(error || attachments.error) && (
+          <p className="form-error" role="alert">{error || attachments.error}</p>
+        )}
+        {message && <p className="document-success" role="status">{message}</p>}
+        <div className="dialog-footer">
+          <button
+            className="primary-button"
+            disabled={uploading || !entityId || attachments.drafts.length === 0 || attachments.loading}
+            onClick={() => void handleUpload()}
+            type="button"
+          >
+            {uploading ? 'Caricamento…' : hasPendingDocuments ? 'Riprova caricamenti' : 'Carica documenti'}
+          </button>
+          <button
+            className="secondary-button"
+            disabled={uploading}
+            onClick={() => void clearDocumentSelection()}
+            type="button"
+          >
+            Pulisci selezione
+          </button>
+          <button className="secondary-button" disabled={loading} onClick={() => void loadDocuments()} type="button">
+            Aggiorna elenco
+          </button>
+        </div>
+      </section>
+
+      <section className="content-card">
+        <div className="card-heading">
+          <div>
+            <h2>Documenti registrati</h2>
+            <p>{documents.length} {documents.length === 1 ? 'documento' : 'documenti'} visibili nel tuo perimetro.</p>
+          </div>
+        </div>
+        {error && documents.length === 0 ? (
+          <div className="inline-error" role="alert">{error}</div>
+        ) : documents.length === 0 ? (
+          <div className="empty-state">
+            <div className="empty-icon">▧</div>
+            <h3>Nessun documento ancora</h3>
+            <p>Quando alleghi un file a un Proprietario, Immobile, Locatario o Contratto, lo troverai qui.</p>
+          </div>
+        ) : (
+          <div className="document-list">
+            {documents.map((document) => {
+              const isAvailable = document.upload_status === 'AVAILABLE'
+                && document.malware_scan_status === 'CLEAN'
+              return (
+                <article className="document-list-item" key={`${document.document_id}-${document.entity_type}-${document.entity_id}`}>
+                  <div className="document-list-copy">
+                    <strong>{document.category_label ?? document.category}</strong>
+                    <span>{entityTypeLabels[document.entity_type]} · {document.entity_label}</span>
+                    <span>{document.original_file_name} · {formatFileSize(document.size_bytes)}</span>
+                  </div>
+                  <div className="document-list-actions">
+                    <span className={`document-status-badge${isAvailable ? ' document-status-ready' : ''}`}>
+                      {isAvailable
+                        ? 'Verificato'
+                        : document.upload_status === 'PENDING_SCAN'
+                          ? 'In verifica'
+                          : document.upload_status === 'RESERVED'
+                            ? 'Upload incompleto'
+                            : document.upload_status}
+                    </span>
+                    {isAvailable && (
+                      <button className="secondary-button" onClick={() => void openDocument(document)} type="button">
+                        Scarica
+                      </button>
+                    )}
+                  </div>
+                </article>
+              )
+            })}
+          </div>
+        )}
+        <p className="detail-muted">I documenti restano privati e sono scaricabili solo dopo la scansione di sicurezza.</p>
+      </section>
+    </div>
+  )
+}
+
+function formatFileSize(size: number | null) {
+  if (size === null) return 'Dimensione non disponibile'
+  if (size < 1024) return `${size} B`
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(0)} KB`
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`
+}
+
 function ContractsManagementPanel({
   page,
   onPageChange,
@@ -1434,6 +2196,7 @@ function TenantEditor({
   onSaved: () => Promise<void>
 }) {
   const { items: catalogItems, loading: catalogLoading, error: catalogError } = useReferenceCatalog()
+  const attachments = useDocumentAttachments('TENANT')
   const [values, setValues] = useState({
     propertyId: properties[0]?.property_id ?? '',
     tenantType: 'NATURAL_PERSON',
@@ -1451,6 +2214,7 @@ function TenantEditor({
   })
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [createdTenantId, setCreatedTenantId] = useState<string | null>(null)
 
   function updateValue(field: keyof typeof values, value: string) {
     setValues((current) => ({ ...current, [field]: value }))
@@ -1459,12 +2223,27 @@ function TenantEditor({
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError('')
+    if (createdTenantId) {
+      setSubmitting(true)
+      const uploaded = await attachments.uploadForEntity(createdTenantId)
+      setSubmitting(false)
+      if (!uploaded) {
+        setError('Locatario salvato. Uno o più allegati non sono ancora stati caricati: riprova prima di uscire.')
+        return
+      }
+      await onSaved()
+      return
+    }
     if (!supabase) {
       setError('Connessione al database non disponibile.')
       return
     }
     if (catalogLoading || catalogError) {
       setError(catalogError || 'Caricamento dei cataloghi di riferimento in corso.')
+      return
+    }
+    if (attachments.drafts.some((draft) => !draft.file)) {
+      setError('Per ogni documento aggiunto seleziona un file oppure rimuovi la riga.')
       return
     }
     setSubmitting(true)
@@ -1483,17 +2262,28 @@ function TenantEditor({
       p_province: values.province,
       p_notes: values.notes,
     })
-    setSubmitting(false)
     if (createError) {
+      setSubmitting(false)
       setError(contractRpcErrorMessage(createError.message))
       console.error('Tenant creation failed', createError)
       return
     }
     if (!data?.tenant_id) {
+      setSubmitting(false)
       setError('Il salvataggio non ha restituito l’identificativo del Locatario.')
       console.error('Tenant creation returned no id', data)
       return
     }
+    setCreatedTenantId(data.tenant_id)
+    if (attachments.drafts.length > 0) {
+      const uploaded = await attachments.uploadForEntity(data.tenant_id)
+      if (!uploaded) {
+        setSubmitting(false)
+        setError('Locatario salvato. Uno o più allegati non sono ancora stati caricati: riprova prima di uscire.')
+        return
+      }
+    }
+    setSubmitting(false)
     await onSaved()
   }
 
@@ -1505,7 +2295,13 @@ function TenantEditor({
           <h1>Nuovo Locatario</h1>
           <p>Il Locatario viene associato all’immobile scelto e reso disponibile nei relativi contratti.</p>
         </div>
-        <button className="secondary-button" onClick={onCancel} type="button">Annulla</button>
+        <button
+          className="secondary-button"
+          onClick={() => void cancelEditorWithAttachments(attachments, onCancel, setError)}
+          type="button"
+        >
+          Annulla
+        </button>
       </header>
       {properties.length === 0 ? (
         <div className="inline-error" role="alert">
@@ -1586,12 +2382,24 @@ function TenantEditor({
             <h3>Note</h3>
             <textarea onChange={(event) => updateValue('notes', event.target.value)} rows={3} value={values.notes} />
           </div>
+          <DocumentAttachmentFields attachments={attachments} disabled={submitting} />
           {(catalogError || error) && <p className="form-error" role="alert">{catalogError || error}</p>}
           <div className="dialog-footer">
-            <button className="primary-button" disabled={submitting || catalogLoading || Boolean(catalogError)} type="submit">
-              {submitting ? 'Salvataggio…' : 'Crea Locatario'}
+            <button className="primary-button" disabled={submitting || (catalogLoading && attachments.drafts.length > 0)} type="submit">
+              {submitting
+                ? 'Salvataggio…'
+                : createdTenantId
+                  ? 'Riprova allegati'
+                  : 'Crea Locatario'}
             </button>
-            <button className="secondary-button" disabled={submitting} onClick={onCancel} type="button">Annulla</button>
+            <button
+              className="secondary-button"
+              disabled={submitting}
+              onClick={() => void cancelEditorWithAttachments(attachments, onCancel, setError)}
+              type="button"
+            >
+              Annulla
+            </button>
           </div>
         </form>
       )}
@@ -1613,6 +2421,7 @@ function ContractEditor({
   onSaved: () => Promise<void>
 }) {
   const { items: catalogItems, loading: catalogLoading, error: catalogError } = useReferenceCatalog()
+  const attachments = useDocumentAttachments('CONTRACT')
   const today = localDateString()
   const [values, setValues] = useState({
     propertyId: properties[0]?.property_id ?? '',
@@ -1637,6 +2446,7 @@ function ContractEditor({
   const [spaceError, setSpaceError] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [createdContractId, setCreatedContractId] = useState<string | null>(null)
 
   useEffect(() => {
     if (!supabase || !values.propertyId) {
@@ -1693,6 +2503,17 @@ function ContractEditor({
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError('')
+    if (createdContractId) {
+      setSubmitting(true)
+      const uploaded = await attachments.uploadForEntity(createdContractId)
+      setSubmitting(false)
+      if (!uploaded) {
+        setError('Contratto salvato. Uno o più allegati non sono ancora stati caricati: riprova prima di uscire.')
+        return
+      }
+      await onSaved()
+      return
+    }
     if (catalogLoading || catalogError) {
       setError(catalogError || 'Caricamento dei cataloghi di riferimento in corso.')
       return
@@ -1703,6 +2524,10 @@ function ContractEditor({
     }
     if (!values.tenantId) {
       setError('Seleziona un Locatario già associato all’immobile o registrane uno nuovo.')
+      return
+    }
+    if (attachments.drafts.some((draft) => !draft.file)) {
+      setError('Per ogni documento aggiunto seleziona un file oppure rimuovi la riga.')
       return
     }
     if (values.contractType === 'TRANSITORY' && !values.transitoryReason.trim()) {
@@ -1746,17 +2571,28 @@ function ContractEditor({
       p_cedolare_secca: values.cedolareSecca,
       p_transitory_reason: values.contractType === 'TRANSITORY' ? values.transitoryReason.trim() : null,
     })
-    setSubmitting(false)
     if (createError) {
+      setSubmitting(false)
       setError(contractRpcErrorMessage(createError.message))
       console.error('Contract creation failed', createError)
       return
     }
     if (!data?.contract_id) {
+      setSubmitting(false)
       setError('Il salvataggio non ha restituito l’identificativo del contratto.')
       console.error('Contract creation returned no id', data)
       return
     }
+    setCreatedContractId(data.contract_id)
+    if (attachments.drafts.length > 0) {
+      const uploaded = await attachments.uploadForEntity(data.contract_id)
+      if (!uploaded) {
+        setSubmitting(false)
+        setError('Contratto salvato. Uno o più allegati non sono ancora stati caricati: riprova prima di uscire.')
+        return
+      }
+    }
+    setSubmitting(false)
     await onSaved()
   }
 
@@ -1770,7 +2606,13 @@ function ContractEditor({
           <h1>Registra un contratto</h1>
           <p>Il contratto viene creato inattivo. Attivalo dalla scheda per abilitare la generazione delle rate.</p>
         </div>
-        <button className="secondary-button" onClick={onCancel} type="button">Annulla</button>
+        <button
+          className="secondary-button"
+          onClick={() => void cancelEditorWithAttachments(attachments, onCancel, setError)}
+          type="button"
+        >
+          Annulla
+        </button>
       </header>
       {properties.length === 0 ? (
         <div className="inline-error" role="alert">Non hai immobili attivi nel tuo perimetro Manager.</div>
@@ -1968,12 +2810,24 @@ function ContractEditor({
             <h3>Note</h3>
             <textarea onChange={(event) => updateValue('notes', event.target.value)} rows={3} value={values.notes} />
           </div>
+          <DocumentAttachmentFields attachments={attachments} disabled={submitting} />
           {(catalogError || error) && <p className="form-error" role="alert">{catalogError || error}</p>}
           <div className="dialog-footer">
             <button className="primary-button" disabled={submitting || loadingSpaces || catalogLoading || Boolean(catalogError)} type="submit">
-              {submitting ? 'Salvataggio…' : 'Crea contratto inattivo'}
+              {submitting
+                ? 'Salvataggio…'
+                : createdContractId
+                  ? 'Riprova allegati'
+                  : 'Crea contratto inattivo'}
             </button>
-            <button className="secondary-button" disabled={submitting} onClick={onCancel} type="button">Annulla</button>
+            <button
+              className="secondary-button"
+              disabled={submitting}
+              onClick={() => void cancelEditorWithAttachments(attachments, onCancel, setError)}
+              type="button"
+            >
+              Annulla
+            </button>
           </div>
         </form>
       )}
@@ -2117,6 +2971,7 @@ function OwnerEditor({
   nested?: boolean
 }) {
   const { items: catalogItems, loading: catalogLoading, error: catalogError } = useReferenceCatalog()
+  const attachments = useDocumentAttachments('OWNER')
   const [values, setValues] = useState<OwnerFormValues>({
     ownerType: 'NATURAL_PERSON',
     firstName: '',
@@ -2137,6 +2992,7 @@ function OwnerEditor({
   })
   const [submitError, setSubmitError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [createdOwnerId, setCreatedOwnerId] = useState<string | null>(null)
 
   function updateValue(field: keyof OwnerFormValues, value: string) {
     setValues((current) => ({ ...current, [field]: value }))
@@ -2145,12 +3001,27 @@ function OwnerEditor({
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setSubmitError('')
+    if (createdOwnerId) {
+      setSubmitting(true)
+      const uploaded = await attachments.uploadForEntity(createdOwnerId)
+      setSubmitting(false)
+      if (!uploaded) {
+        setSubmitError('Proprietario salvato. Uno o più allegati non sono ancora stati caricati: riprova prima di uscire.')
+        return
+      }
+      await onSaved(createdOwnerId)
+      return
+    }
     if (!supabase) {
       setSubmitError('Connessione al database non disponibile.')
       return
     }
     if (catalogLoading || catalogError) {
       setSubmitError(catalogError || 'Caricamento dei cataloghi di riferimento in corso.')
+      return
+    }
+    if (attachments.drafts.some((draft) => !draft.file)) {
+      setSubmitError('Per ogni documento aggiunto seleziona un file oppure rimuovi la riga.')
       return
     }
 
@@ -2173,20 +3044,30 @@ function OwnerEditor({
       p_iban: values.iban,
       p_notes: values.notes,
     })
-    setSubmitting(false)
-
     if (error) {
+      setSubmitting(false)
       setSubmitError(ownerRpcErrorMessage(error.message))
       console.error('Owner creation RPC failed', error)
       return
     }
 
     if (!data?.owner_id) {
+      setSubmitting(false)
       setSubmitError('Il salvataggio non ha restituito l’identificativo del Proprietario.')
       console.error('Owner creation RPC returned no owner id', data)
       return
     }
 
+    setCreatedOwnerId(data.owner_id)
+    if (attachments.drafts.length > 0) {
+      const uploaded = await attachments.uploadForEntity(data.owner_id)
+      if (!uploaded) {
+        setSubmitting(false)
+        setSubmitError('Proprietario salvato. Uno o più allegati non sono ancora stati caricati: riprova prima di uscire.')
+        return
+      }
+    }
+    setSubmitting(false)
     await onSaved(data.owner_id)
   }
 
@@ -2207,7 +3088,7 @@ function OwnerEditor({
           <button
             aria-label="Chiudi modulo"
             className="dialog-close"
-            onClick={onCancel}
+            onClick={() => void cancelEditorWithAttachments(attachments, onCancel, setSubmitError)}
             type="button"
           >
             ×
@@ -2372,15 +3253,21 @@ function OwnerEditor({
             </FormField>
           </div>
 
+          <DocumentAttachmentFields attachments={attachments} disabled={submitting} />
+
           {(catalogError || submitError) && <p className="form-error" role="alert">{catalogError || submitError}</p>}
           <div className="dialog-footer">
-            <button className="primary-button" disabled={submitting || catalogLoading || Boolean(catalogError)} type="submit">
-              {submitting ? 'Salvataggio…' : 'Crea Proprietario'}
+            <button className="primary-button" disabled={submitting || (catalogLoading && attachments.drafts.length > 0)} type="submit">
+              {submitting
+                ? 'Salvataggio…'
+                : createdOwnerId
+                  ? 'Riprova allegati'
+                  : 'Crea Proprietario'}
             </button>
             <button
               className="secondary-button"
               disabled={submitting}
-              onClick={onCancel}
+              onClick={() => void cancelEditorWithAttachments(attachments, onCancel, setSubmitError)}
               type="button"
             >
               Annulla
@@ -2683,6 +3570,7 @@ function PropertyEditor({
   onSaved: (propertyId: string) => Promise<void>
 }) {
   const { items: catalogItems, loading: catalogLoading, error: catalogError } = useReferenceCatalog()
+  const attachments = useDocumentAttachments('PROPERTY')
   const [values, setValues] = useState<PropertyFormValues>(() => ({
     internalCode: property?.internal_code ?? '',
     name: property?.name ?? '',
@@ -2706,6 +3594,7 @@ function PropertyEditor({
   const [allocations, setAllocations] = useState<PropertyAllocationDraft[]>([])
   const [submitError, setSubmitError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [createdPropertyId, setCreatedPropertyId] = useState<string | null>(null)
   const [creatingOwnerForAllocation, setCreatingOwnerForAllocation] = useState<number | null>(null)
   const allocationTotal = allocations.reduce(
     (sum, allocation) => sum + (Number(allocation.percentage) || 0),
@@ -2756,12 +3645,28 @@ function PropertyEditor({
     event.preventDefault()
     setSubmitError('')
 
+    if (createdPropertyId) {
+      setSubmitting(true)
+      const uploaded = await attachments.uploadForEntity(createdPropertyId)
+      setSubmitting(false)
+      if (!uploaded) {
+        setSubmitError('Immobile salvato. Uno o più allegati non sono ancora stati caricati: riprova prima di uscire.')
+        return
+      }
+      await onSaved(createdPropertyId)
+      return
+    }
+
     if (!supabase) {
       setSubmitError('Connessione al database non disponibile.')
       return
     }
     if (catalogLoading || catalogError) {
       setSubmitError(catalogError || 'Caricamento dei cataloghi di riferimento in corso.')
+      return
+    }
+    if (mode === 'create' && attachments.drafts.some((draft) => !draft.file)) {
+      setSubmitError('Per ogni documento aggiunto seleziona un file oppure rimuovi la riga.')
       return
     }
 
@@ -2858,19 +3763,30 @@ function PropertyEditor({
             p_status: values.status,
           })
 
-    setSubmitting(false)
     if (result.error) {
+      setSubmitting(false)
       setSubmitError(propertyRpcErrorMessage(result.error.message))
       console.error(`Property ${mode} RPC failed`, result.error)
       return
     }
 
     if (!result.data?.property_id) {
+      setSubmitting(false)
       setSubmitError('Il salvataggio non ha restituito l’identificativo dell’immobile.')
       console.error(`Property ${mode} RPC returned no property id`, result.data)
       return
     }
 
+    if (mode === 'create' && attachments.drafts.length > 0) {
+      setCreatedPropertyId(result.data.property_id)
+      const uploaded = await attachments.uploadForEntity(result.data.property_id)
+      if (!uploaded) {
+        setSubmitting(false)
+        setSubmitError('Immobile salvato. Uno o più allegati non sono ancora stati caricati: riprova prima di uscire.')
+        return
+      }
+    }
+    setSubmitting(false)
     await onSaved(result.data.property_id)
   }
 
@@ -2905,7 +3821,7 @@ function PropertyEditor({
           <button
             aria-label="Annulla e torna indietro"
             className="dialog-close"
-            onClick={onCancel}
+            onClick={() => void cancelEditorWithAttachments(attachments, onCancel, setSubmitError)}
             type="button"
           >
             ×
@@ -3184,6 +4100,10 @@ function PropertyEditor({
             />
           </div>
 
+          {mode === 'create' && (
+            <DocumentAttachmentFields attachments={attachments} disabled={submitting} />
+          )}
+
           {(catalogError || submitError) && (
             <p className="form-error" role="alert">{catalogError || submitError}</p>
           )}
@@ -3201,14 +4121,16 @@ function PropertyEditor({
             >
               {submitting
                 ? 'Salvataggio…'
-                : mode === 'create'
+                : createdPropertyId
+                  ? 'Riprova allegati'
+                  : mode === 'create'
                   ? 'Crea immobile'
                   : 'Salva modifiche'}
             </button>
             <button
               className="secondary-button"
               disabled={submitting}
-              onClick={onCancel}
+              onClick={() => void cancelEditorWithAttachments(attachments, onCancel, setSubmitError)}
               type="button"
             >
               Annulla

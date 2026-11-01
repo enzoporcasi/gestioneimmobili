@@ -59,6 +59,12 @@ Le migration vanno eseguite in ordine lessicografico. Il set attuale include:
    - `20261101163000_preserve_legacy_contract_codes.sql`
    - `20261101164000_add_early_terminated_catalog_status.sql`
    - `20261101165000_add_pending_scan_catalog_item.sql`
+   - `20261101170000_entity_document_categories.sql`
+   - `20261101171000_document_workspace_rpcs.sql`
+   - `20261101172000_add_highly_sensitive_document_level.sql`
+   - `20261101173000_raise_attachment_sensitivity.sql`
+   - `20261101174000_cancel_reserved_document_upload.sql`
+   - `20261101175000_allow_reserved_upload_cleanup.sql`
 
 ## Funzionalità presenti nel codice
 
@@ -96,6 +102,9 @@ Le migration vanno eseguite in ordine lessicografico. Il set attuale include:
 - `documents`, `document_versions`, `deadlines`, `notification_rules`
 - workflow documentale `RESERVED` → `PENDING_SCAN` → `AVAILABLE`/`REJECTED`/`FAILED`
 - supporto a link documentali verso proprietari, immobili, contratti, rate, incassi, spese, porzioni e scadenze
+- tipologie documentali associate all'entità: identità e codice fiscale del Proprietario; planimetria, visura catastale, APE, atto di proprietà e altro per l'Immobile; identità, codice fiscale, permesso di soggiorno, documenti camerali e documentazione reddituale/transitoria per il Locatario; contratto firmato, registrazione, appendici e verbale per il Contratto
+- allegati selezionabili durante la creazione di Proprietari, Immobili, Locatari e Contratti oppure dalla sezione Documenti per entità esistenti; accettati PDF/JPG/PNG fino a 20 MB e acquisizione foto da dispositivo mobile
+- download disponibile soltanto dopo esito scansione `CLEAN`; il servizio antivirus effettivo resta da integrare. Le integrazioni dirette OAuth con provider cloud sono rinviate; in questa fase si usano file del dispositivo e fotocamera
 - audit event sulle operazioni critiche
 - la Edge Function `create-document-download-url` usa `APP_PUBLIC_SUPABASE_URL` come override opzionale e `SUPABASE_URL` come fallback per l'host delle signed URL
 
@@ -167,6 +176,7 @@ psql "$DATABASE_URL" -f supabase/tests/007_partial_installment_payment.sql
 psql "$DATABASE_URL" -f supabase/tests/008_terminate_contract.sql
 psql "$DATABASE_URL" -f supabase/tests/009_create_expense_with_allocations.sql
 psql "$DATABASE_URL" -f supabase/tests/010_document_rls.sql
+psql "$DATABASE_URL" -f supabase/tests/016_document_category_catalogs.sql
 psql "$DATABASE_URL" -f supabase/tests/012_property_management_rpc.sql
 node supabase/tests/011_storage_upload_e2e.mjs
 node supabase/tests/012_create_document_download_url_e2e.mjs

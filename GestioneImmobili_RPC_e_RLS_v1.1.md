@@ -83,9 +83,13 @@ Se `SECURITY DEFINER`: owner tecnico controllato, `search_path` fisso, oggetti s
 ### Documenti
 - `reserve_document_upload`: crea Documento/versione `RESERVED`, ponte tipizzato e path controllato.
 - `finalize_document_upload`: verifica oggetto e metadati; stato `PENDING_SCAN`.
+- `cancel_document_upload`: annulla solo prenotazioni `RESERVED` create dall'utente autorizzato, rimuove l'eventuale oggetto Storage e i relativi record/collegamenti, ripristinando il flag interno di eliminazione Storage al termine.
 - `complete_document_scan`: backend; `CLEAN -> AVAILABLE`, altrimenti rifiutato.
 - `create_document_download_url`: autorizza e genera signed URL breve.
 - `archive_document`: archiviazione logica.
+- `list_document_categories(entity_type)`: restituisce le tipologie attive e la sensibilità minima per Proprietario, Immobile, Locatario e Contratto; `reserve_document_upload` rifiuta le categorie non associate all'entità.
+- `list_manageable_document_entities()` e `list_manageable_documents()`: alimentano la sezione Documenti nel perimetro Manager/Viewer.
+- I moduli di creazione supportano allegati PDF/JPG/PNG fino a 20 MB; gli upload sono privati e i documenti sensibili richiedono ruolo Manager per il download. Le nuove versioni restano non scaricabili fino all'integrazione del servizio di scansione effettivo.
 
 ### Privacy (target)
 - `accept_legal_document_version`: append-only e idempotente.
@@ -337,6 +341,7 @@ La v1.1 definisce il comportamento target per RPC, RLS, Storage, atomicità e te
 | `create_expense_with_allocations` | Implementata per creazione spesa, ripartizioni e pagamento iniziale opzionale. |
 | `security.can_access_document` | Implementata usando collegamenti documentali supportati. |
 | `reserve_document_upload`, `finalize_document_upload` | Implementate per prenotazione e finalizzazione upload. |
+| `list_document_categories`, `list_manageable_document_entities`, `list_manageable_documents` | Implementate per cataloghi per entità e workspace documentale; incluse le associazioni e i controlli RLS del Locatario. |
 | `complete_document_scan` | Implementata come passaggio backend; non eseguibile dal ruolo `authenticated`. Il servizio di scansione effettivo è esterno. |
 | `authorize_document_download` | Implementata; autorizza una versione `AVAILABLE` e `CLEAN` e restituisce i metadati per la signed URL. |
 | Edge Function `create-document-download-url` | Implementata; verifica il chiamante, invoca la RPC autorizzativa e usa la chiave privilegiata solo per creare la signed URL. |

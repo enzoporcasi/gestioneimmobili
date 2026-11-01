@@ -482,7 +482,12 @@ reset role;
 update public.user_owner_accesses
 set role = 'VIEWER'
 where user_id = '796c3053-6a28-4ff5-aa08-06129dcf942e'
-  and owner_id = 'c3000000-0000-0000-0000-000000000003';
+  and owner_id in (
+      select ownership.owner_id
+      from public.property_ownerships ownership
+      join public.properties property on property.id = ownership.property_id
+      where property.internal_code = 'PROPERTY-RPC-TEST-UPDATED'
+  );
 
 select set_config(
     'request.jwt.claims',

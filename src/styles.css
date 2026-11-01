@@ -1531,6 +1531,145 @@ th:first-child {
   accent-color: var(--green-800);
 }
 
+.document-attachment-row {
+  display: grid;
+  grid-template-columns: minmax(210px, 0.8fr) minmax(0, 1.4fr);
+  gap: 12px 18px;
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.document-file-actions {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.document-file-name {
+  flex: 1 1 100%;
+  overflow-wrap: anywhere;
+  color: #526158;
+  font-size: 11px;
+}
+
+.document-file-button {
+  position: relative;
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  cursor: pointer;
+}
+
+.document-file-button input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+
+.document-file-button:focus-within {
+  outline: 2px solid var(--green-800);
+  outline-offset: 2px;
+}
+
+.document-upload-status {
+  color: var(--green-800);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.document-upload-error {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.document-add-button {
+  margin-top: 12px;
+}
+
+.document-workspace {
+  display: grid;
+  gap: 18px;
+}
+
+.document-entity-selector {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  max-width: 760px;
+}
+
+.document-list {
+  display: grid;
+  gap: 8px;
+}
+
+.document-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+}
+
+.document-list-copy {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.document-list-copy strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.document-list-copy span {
+  overflow-wrap: anywhere;
+  color: #647168;
+  font-size: 11px;
+}
+
+.document-list-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 9px;
+}
+
+.document-status-badge {
+  padding: 5px 8px;
+  border-radius: 99px;
+  background: #f3efe0;
+  color: #80621f;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.document-status-ready {
+  background: #e8f2eb;
+  color: var(--green-800);
+}
+
+.document-success {
+  margin: 10px 0;
+  color: var(--green-800);
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .contract-detail-grid {
   max-width: 1120px;
 }
@@ -1540,6 +1679,24 @@ th:first-child {
 }
 
 @media (max-width: 480px) {
+  .document-attachment-row {
+    grid-template-columns: 1fr;
+    padding: 12px;
+  }
+
+  .document-entity-selector {
+    grid-template-columns: 1fr;
+  }
+
+  .document-list-item {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .document-list-actions {
+    justify-content: flex-start;
+  }
+
   .owner-type-switch {
     display: flex;
   }

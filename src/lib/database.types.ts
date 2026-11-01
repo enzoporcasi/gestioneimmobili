@@ -115,6 +115,36 @@ export type ReferenceCatalogItem = {
   is_active: boolean
 }
 
+export type DocumentCategoryOption = {
+  code: string
+  label: string
+  minimum_sensitivity: string
+  sort_order: number
+}
+
+export type ManageableDocumentEntity = {
+  entity_type: 'OWNER' | 'PROPERTY' | 'TENANT' | 'CONTRACT'
+  entity_id: string
+  display_name: string
+}
+
+export type ManageableDocument = {
+  document_id: string
+  entity_type: ManageableDocumentEntity['entity_type']
+  entity_id: string
+  entity_label: string
+  title: string
+  category: string
+  category_label: string | null
+  original_file_name: string
+  mime_type: string | null
+  size_bytes: number | null
+  upload_status: string
+  malware_scan_status: string
+  document_version_id: string
+  created_at: string
+}
+
 type PropertyInsert = Omit<PropertyRow, 'id'> & { id?: string }
 type PropertyUpdate = Partial<Omit<PropertyRow, 'id'>>
 
@@ -311,6 +341,45 @@ export type Database = {
       list_reference_catalog_items: {
         Args: Record<PropertyKey, never>
         Returns: ReferenceCatalogItem[]
+      }
+      list_document_categories: {
+        Args: { p_entity_type: string }
+        Returns: DocumentCategoryOption[]
+      }
+      list_manageable_document_entities: {
+        Args: Record<PropertyKey, never>
+        Returns: ManageableDocumentEntity[]
+      }
+      list_manageable_documents: {
+        Args: Record<PropertyKey, never>
+        Returns: ManageableDocument[]
+      }
+      reserve_document_upload: {
+        Args: {
+          p_entity_type: string
+          p_entity_id: string
+          p_title: string
+          p_category: string
+          p_original_file_name: string
+          p_declared_mime_type: string
+          p_expected_size_bytes: number
+          p_sensitivity?: string
+          p_link_role?: string | null
+        }
+        Returns: Json
+      }
+      finalize_document_upload: {
+        Args: {
+          p_document_version_id: string
+          p_actual_mime_type: string
+          p_actual_size_bytes: number
+          p_checksum?: string | null
+        }
+        Returns: Json
+      }
+      cancel_document_upload: {
+        Args: { p_document_version_id: string }
+        Returns: Json
       }
       create_property_with_ownership: {
         Args: {
