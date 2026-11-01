@@ -89,7 +89,7 @@ Se `SECURITY DEFINER`: owner tecnico controllato, `search_path` fisso, oggetti s
 - `archive_document`: archiviazione logica.
 - `list_document_categories(entity_type)`: restituisce le tipologie attive e la sensibilità minima per Proprietario, Immobile, Locatario e Contratto; `reserve_document_upload` rifiuta le categorie non associate all'entità.
 - `list_manageable_document_entities()` e `list_manageable_documents()`: alimentano la sezione Documenti nel perimetro Manager/Viewer.
-- I moduli di creazione supportano allegati PDF/JPG/PNG fino a 20 MB; gli upload sono privati e i documenti sensibili richiedono ruolo Manager per il download. Le nuove versioni restano non scaricabili fino all'integrazione del servizio di scansione effettivo.
+- I moduli di creazione, le schermate di modifica disponibili per Proprietari e Immobili e la scheda di gestione del Contratto supportano allegati PDF/JPG/PNG fino a 20 MB; gli upload sono privati e i documenti sensibili richiedono ruolo Manager per il download. L'aggiunta di allegati non amplia i campi anagrafici modificabili del Proprietario (solo email e cellulare). Le nuove versioni restano non scaricabili fino all'integrazione del servizio di scansione effettivo; le future schermate di modifica devono offrire lo stesso flusso di allegati.
 
 ### Privacy (target)
 - `accept_legal_document_version`: append-only e idempotente.

@@ -19,6 +19,14 @@ Il repository include:
 
 Questa configurazione è da intendere come implementation snapshot di progetto, non come certificazione di produzione. La shell Android riutilizza le funzionalità web implementate; la verifica completa su dispositivi Android e la pubblicazione non sono ancora state completate. La presenza di migration e test non significa che l'intera suite sia stata eseguita con esito positivo.
 
+## Struttura frontend
+
+- `src/App.tsx` gestisce sessione, autenticazione e contenitore della navigazione.
+- `src/app/shared.tsx` contiene il contesto dei cataloghi e i componenti/utilità condivisi.
+- `src/features/` separa le schermate e i moduli di Immobili, Proprietari, Contratti/Locatari e Documenti; form, dettaglio e liste sono in moduli dedicati.
+- `src/features/documents/attachments.tsx` centralizza il flusso di selezione e caricamento degli allegati riutilizzato dalle entità.
+- Le schermate e gli editor vengono caricati su richiesta con `React.lazy` e `Suspense`; la build di produzione va mantenuta senza chunk JavaScript superiori a 500 kB.
+
 ## Prerequisiti
 - Progetto Supabase locale o remoto;
 - Supabase CLI configurata;
@@ -103,7 +111,7 @@ Le migration vanno eseguite in ordine lessicografico. Il set attuale include:
 - workflow documentale `RESERVED` → `PENDING_SCAN` → `AVAILABLE`/`REJECTED`/`FAILED`
 - supporto a link documentali verso proprietari, immobili, contratti, rate, incassi, spese, porzioni e scadenze
 - tipologie documentali associate all'entità: identità e codice fiscale del Proprietario; planimetria, visura catastale, APE, atto di proprietà e altro per l'Immobile; identità, codice fiscale, permesso di soggiorno, documenti camerali e documentazione reddituale/transitoria per il Locatario; contratto firmato, registrazione, appendici e verbale per il Contratto
-- allegati selezionabili durante la creazione di Proprietari, Immobili, Locatari e Contratti oppure dalla sezione Documenti per entità esistenti; accettati PDF/JPG/PNG fino a 20 MB e acquisizione foto da dispositivo mobile
+- allegati selezionabili durante la creazione e modifica/gestione delle entità supportate (modifica Proprietari e Immobili, scheda Contratto), oppure dalla sezione Documenti per entità esistenti; accettati PDF/JPG/PNG fino a 20 MB e acquisizione foto da dispositivo mobile
 - download disponibile soltanto dopo esito scansione `CLEAN`; il servizio antivirus effettivo resta da integrare. Le integrazioni dirette OAuth con provider cloud sono rinviate; in questa fase si usano file del dispositivo e fotocamera
 - audit event sulle operazioni critiche
 - la Edge Function `create-document-download-url` usa `APP_PUBLIC_SUPABASE_URL` come override opzionale e `SUPABASE_URL` come fallback per l'host delle signed URL
@@ -135,7 +143,7 @@ Copy-Item .env.example .env
 ```
 
 Poi impostare `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` nel file `.env`.
-Il frontend web è basato su React, TypeScript e Vite. Include autenticazione email/password con Supabase Auth, panoramica, immobili, Proprietari, Locatari e contratti. Il MVP contratti consente di creare anagrafiche Locatario e contratti per intero immobile o porzioni, con tipologie abitative 4+4, 3+2 e transitorie e commerciali 6+6; richiede la motivazione transitoria, registra l'eventuale canone concordato e la scelta opzionale della cedolare secca per contratti abitativi. Il 3+2 richiede per definizione il canone concordato; il rispetto dell'accordo territoriale e i requisiti fiscali devono essere verificati dall'utente. I contratti nascono inattivi e vanno attivati esplicitamente per generare rate. Ogni contratto ha un solo Locatario principale; modifica/archiviazione contratti, co-conduttori, variazioni storiche e prorata non sono inclusi. Per un Proprietario esistente sono modificabili solo email e cellulare. I moduli di modifica e inserimento di Immobili, Proprietari, Locatari e contratti occupano una pagina intera, non una scheda sovrapposta; la stessa regola vale per le future funzionalità. L'Immobile richiede quote che totalizzino il 100%; la modifica della struttura delle quote non è ancora implementata. Il seed locale fornisce un Proprietario demo accessibile a `utente.a@test.local`. Non inserire mai `service_role` o secret key nelle variabili `VITE_*`.
+Il frontend web è basato su React, TypeScript e Vite. Include autenticazione email/password con Supabase Auth, panoramica, immobili, Proprietari, Locatari e contratti. Il MVP contratti consente di creare anagrafiche Locatario e contratti per intero immobile o porzioni, con tipologie abitative 4+4, 3+2 e transitorie e commerciali 6+6; richiede la motivazione transitoria, registra l'eventuale canone concordato e la scelta opzionale della cedolare secca per contratti abitativi. Il 3+2 richiede per definizione il canone concordato; il rispetto dell'accordo territoriale e i requisiti fiscali devono essere verificati dall'utente. I contratti nascono inattivi e vanno attivati esplicitamente per generare rate. Ogni contratto ha un solo Locatario principale; modifica dei dati contrattuali, archiviazione, co-conduttori, variazioni storiche e prorata non sono inclusi. La scheda Contratto consente di aggiungere allegati anche dopo la creazione. Per un Proprietario esistente sono modificabili solo email e cellulare; l'aggiunta di allegati non modifica altri dati anagrafici. Le schermate di modifica attualmente disponibili per Immobili e Proprietari e la scheda di gestione del Contratto consentono di aggiungere allegati, selezionando tipologia e file; le future schermate di modifica devono mantenere la stessa possibilità. I moduli di modifica e inserimento di Immobili, Proprietari, Locatari e contratti occupano una pagina intera, non una scheda sovrapposta; la stessa regola vale per le future funzionalità. L'Immobile richiede quote che totalizzino il 100%; la modifica della struttura delle quote non è ancora implementata. Il seed locale fornisce un Proprietario demo accessibile a `utente.a@test.local`. Non inserire mai `service_role` o secret key nelle variabili `VITE_*`.
 
 ## App Android
 
