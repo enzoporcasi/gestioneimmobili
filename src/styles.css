@@ -241,8 +241,33 @@ p {
   line-height: 1.5;
 }
 
+.form-success {
+  margin: 16px 0 0;
+  color: var(--green-700);
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.auth-mode-toggle {
+  display: block;
+  margin: 20px auto 0;
+  padding: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--green-700);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.auth-mode-toggle:hover {
+  color: var(--green-900);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .auth-footnote {
-  margin: 27px 0 0;
+  margin: 18px 0 0;
   padding-top: 18px;
   border-top: 1px solid var(--line);
   color: #8a948e;

@@ -120,26 +120,69 @@ function SignIn({
   onError: (message: string) => void
   client: NonNullable<typeof supabase>
 }) {
+  const [mode, setMode] = useState<'signin' | 'signup'>('signin')
   const [email, setEmail] = useState('')
+  const [firstName, setFirstName] = useState('')
+  const [lastName, setLastName] = useState('')
   const [password, setPassword] = useState('')
+  const [passwordConfirmation, setPasswordConfirmation] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [status, setStatus] = useState('')
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     onError('')
+    setStatus('')
+
+    if (mode === 'signup' && password !== passwordConfirmation) {
+      onError('Le password non coincidono.')
+      return
+    }
+
     setSubmitting(true)
 
-    const { error: signInError } = await client.auth.signInWithPassword({
-      email: email.trim(),
-      password,
-    })
+    try {
+      if (mode === 'signup') {
+        const { error: signUpError } = await client.auth.signUp({
+          email: email.trim(),
+          password,
+          options: {
+            data: {
+              first_name: firstName.trim(),
+              last_name: lastName.trim(),
+              display_name: `${firstName.trim()} ${lastName.trim()}`,
+            },
+          },
+        })
 
-    if (signInError) {
-      onError('Accesso non riuscito. Controlla email e password e riprova.')
-      console.error('Supabase sign in failed', signInError)
+        if (signUpError) {
+          onError('Registrazione non riuscita. Verifica i dati e riprova.')
+          console.error('Supabase sign up failed', signUpError)
+        } else {
+          setStatus('Registrazione completata. Se richiesto, controlla la tua email per confermare l’account.')
+        }
+      } else {
+        const { error: signInError } = await client.auth.signInWithPassword({
+          email: email.trim(),
+          password,
+        })
+
+        if (signInError) {
+          onError('Accesso non riuscito. Controlla email e password e riprova.')
+          console.error('Supabase sign in failed', signInError)
+        }
+      }
+    } catch (requestError) {
+      onError(mode === 'signup'
+        ? 'Registrazione non riuscita. Verifica i dati e riprova.'
+        : 'Accesso non riuscito. Riprova.')
+      console.error('Supabase authentication request failed', requestError)
+    } finally {
+      setSubmitting(false)
     }
-    setSubmitting(false)
   }
+
+  const isSigningUp = mode === 'signup'
 
   return (
     <main className="auth-screen">
@@ -147,10 +190,34 @@ function SignIn({
         <Brand />
         <div className="auth-heading">
           <span className="eyebrow">Area riservata</span>
-          <h1 id="signin-title">Bentornata</h1>
-          <p>Accedi al tuo spazio di gestione immobiliare.</p>
+          <h1 id="signin-title">{isSigningUp ? 'Crea il tuo account' : 'Bentornata'}</h1>
+          <p>{isSigningUp
+            ? 'Registrati per iniziare a gestire i tuoi immobili.'
+            : 'Accedi al tuo spazio di gestione immobiliare.'}</p>
         </div>
         <form className="auth-form" onSubmit={handleSubmit}>
+          {isSigningUp && (
+            <>
+              <label htmlFor="first-name">Nome</label>
+              <input
+                autoComplete="given-name"
+                id="first-name"
+                onChange={(event) => setFirstName(event.target.value)}
+                required
+                type="text"
+                value={firstName}
+              />
+              <label htmlFor="last-name">Cognome</label>
+              <input
+                autoComplete="family-name"
+                id="last-name"
+                onChange={(event) => setLastName(event.target.value)}
+                required
+                type="text"
+                value={lastName}
+              />
+            </>
+          )}
           <label htmlFor="email">Email</label>
           <input
             autoComplete="username"
@@ -163,25 +230,52 @@ function SignIn({
           />
           <label htmlFor="password">Password</label>
           <input
-            autoComplete="current-password"
+            autoComplete={isSigningUp ? 'new-password' : 'current-password'}
             id="password"
+            minLength={isSigningUp ? 8 : undefined}
             onChange={(event) => setPassword(event.target.value)}
             required
             type="password"
             value={password}
           />
+          {isSigningUp && (
+            <>
+              <label htmlFor="password-confirmation">Conferma password</label>
+              <input
+                autoComplete="new-password"
+                id="password-confirmation"
+                minLength={8}
+                onChange={(event) => setPasswordConfirmation(event.target.value)}
+                required
+                type="password"
+                value={passwordConfirmation}
+              />
+            </>
+          )}
           {error && (
             <p className="form-error" role="alert">
               {error}
             </p>
           )}
           <button className="primary-button full-width" disabled={submitting}>
-            {submitting ? 'Accesso in corso…' : 'Accedi'}
+            {submitting
+              ? (isSigningUp ? 'Registrazione in corso…' : 'Accesso in corso…')
+              : (isSigningUp ? 'Registrati' : 'Accedi')}
           </button>
         </form>
-        <p className="auth-footnote">
-          L’accesso è gestito in sicurezza da Supabase Auth.
-        </p>
+        {status && <p className="form-success" role="status">{status}</p>}
+        <button
+          className="auth-mode-toggle"
+          onClick={() => {
+            setMode(isSigningUp ? 'signin' : 'signup')
+            setStatus('')
+            onError('')
+          }}
+          type="button"
+        >
+          {isSigningUp ? 'Hai già un account? Accedi' : 'Non hai un account? Registrati'}
+        </button>
+        <p className="auth-footnote">Autenticazione protetta da Supabase Auth.</p>
       </section>
     </main>
   )
