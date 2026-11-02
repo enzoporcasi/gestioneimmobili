@@ -196,15 +196,28 @@ p {
 }
 
 .primary-button {
-  min-height: 47px;
-  margin-top: 13px;
+  display: inline-flex;
+  min-height: 39px;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0 16px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 7px;
   background: var(--green-800);
   color: white;
   font-size: 14px;
   font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
+  vertical-align: middle;
   transition: background 150ms ease, transform 150ms ease;
+}
+
+.auth-form .primary-button {
+  min-height: 47px;
+  margin-top: 13px;
+  border-radius: 8px;
 }
 
 .primary-button:hover:not(:disabled) {
@@ -1251,6 +1264,7 @@ th:first-child {
 
 .dialog-footer {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 10px;
