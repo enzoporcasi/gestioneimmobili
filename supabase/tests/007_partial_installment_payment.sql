@@ -231,6 +231,12 @@ values (
 -- 3. Simulazione JWT Utente A
 -- ============================================================
 
+create temporary table partial_payment_test_responses (
+    payment_name text primary key,
+    response jsonb not null
+);
+grant select, insert on partial_payment_test_responses to authenticated;
+
 select set_config(
     'request.jwt.claims',
     json_build_object(
@@ -250,15 +256,63 @@ set local role authenticated;
 -- 4. Primo pagamento parziale: EUR 600
 -- ============================================================
 
-select public.record_partial_installment_payment(
+insert into partial_payment_test_responses values ('partial', public.record_partial_installment_payment(
     'e4000000-0000-0000-0000-000000000004'::uuid,
     600.00,
     date '2027-02-03',
     'BANK_TRANSFER',
     null,
     'Pagatore Parziale Test',
-    'Prima quota del Canone'
-);
+    'Prima quota del Canone',
+    'e5000000-0000-0000-0000-000000000001'::uuid
+));
+
+do $$
+declare
+    v_replayed jsonb;
+begin
+    v_replayed := public.record_partial_installment_payment(
+        'e4000000-0000-0000-0000-000000000004', 600.0,
+        date '2027-02-03', ' BANK_TRANSFER ', null,
+        'Pagatore Parziale Test', 'Prima quota del Canone',
+        'e5000000-0000-0000-0000-000000000001'
+    );
+    if v_replayed is distinct from (
+        select response from partial_payment_test_responses where payment_name = 'partial'
+    ) then
+        raise exception 'PARTIAL_PAYMENT_REPLAY_RESPONSE_CHANGED';
+    end if;
+
+    begin
+        perform public.record_partial_installment_payment(
+            'e4000000-0000-0000-0000-000000000004', 100,
+            date '2027-02-03', 'BANK_TRANSFER', null,
+            'Pagatore Parziale Test', 'Prima quota del Canone',
+            'e5000000-0000-0000-0000-000000000001'
+        );
+        raise exception 'PARTIAL_PAYMENT_IDEMPOTENCY_CONFLICT_NOT_REJECTED';
+    exception when raise_exception then
+        if sqlerrm <> 'IDEMPOTENCY_CONFLICT' then raise; end if;
+    end;
+
+    begin
+        perform public.record_partial_installment_payment(
+            'e4000000-0000-0000-0000-000000000004', 100,
+            date '2027-02-03', 'BANK_TRANSFER'
+        );
+        raise exception 'PARTIAL_PAYMENT_MISSING_KEY_NOT_REJECTED';
+    exception when raise_exception then
+        if sqlerrm <> 'IDEMPOTENCY_KEY_REQUIRED' then raise; end if;
+    end;
+
+    if has_function_privilege('authenticated',
+        'security.record_partial_installment_payment_core(uuid,numeric,date,text,uuid,text,text)', 'EXECUTE')
+    or has_function_privilege('anon',
+        'public.record_partial_installment_payment(uuid,numeric,date,text,uuid,text,text,uuid)', 'EXECUTE') then
+        raise exception 'PARTIAL_PAYMENT_PRIVILEGES_UNSAFE';
+    end if;
+end;
+$$;
 
 reset role;
 
@@ -358,7 +412,8 @@ begin
             'BANK_TRANSFER',
             null,
             'Pagatore Sovrappagamento Test',
-            'Tentativo da rifiutare'
+            'Tentativo da rifiutare',
+            'e5000000-0000-0000-0000-000000000002'::uuid
         );
     exception
         when others then
@@ -395,6 +450,14 @@ begin
       from public.receipt_allocations
      where rent_installment_id = 'e4000000-0000-0000-0000-000000000004';
 
+    if exists (
+        select 1 from public.idempotency_keys
+        where operation_name = 'record_partial_installment_payment'
+          and idempotency_key = 'e5000000-0000-0000-0000-000000000002'
+    ) then
+        raise exception 'PARTIAL_PAYMENT_FAILED_KEY_NOT_ROLLED_BACK';
+    end if;
+
     if v_bad_receipts <> 0 or v_allocation_total <> 600.00 then
         raise exception
             'PARTIAL_PAYMENT_OVERPAYMENT_SIDE_EFFECTS: receipts=%, allocation_total=%',
@@ -422,15 +485,42 @@ select set_config(
 
 set local role authenticated;
 
-select public.record_partial_installment_payment(
+insert into partial_payment_test_responses values ('balance', public.record_partial_installment_payment(
     'e4000000-0000-0000-0000-000000000004'::uuid,
     400.00,
     date '2027-02-05',
     'BANK_TRANSFER',
     null,
     'Pagatore Saldo Test',
-    'Saldo del Canone'
-);
+    'Saldo del Canone',
+    'e5000000-0000-0000-0000-000000000003'::uuid
+));
+
+do $$
+begin
+    if public.record_partial_installment_payment(
+        'e4000000-0000-0000-0000-000000000004', 400.00,
+        date '2027-02-05', 'BANK_TRANSFER', null,
+        'Pagatore Saldo Test', 'Saldo del Canone',
+        'e5000000-0000-0000-0000-000000000003'
+    ) is distinct from (
+        select response from partial_payment_test_responses where payment_name = 'balance'
+    ) then
+        raise exception 'PARTIAL_PAYMENT_BALANCE_REPLAY_FAILED';
+    end if;
+
+    if public.record_partial_installment_payment(
+        'e4000000-0000-0000-0000-000000000004', 600.00,
+        date '2027-02-03', 'BANK_TRANSFER', null,
+        'Pagatore Parziale Test', 'Prima quota del Canone',
+        'e5000000-0000-0000-0000-000000000001'
+    ) is distinct from (
+        select response from partial_payment_test_responses where payment_name = 'partial'
+    ) then
+        raise exception 'PARTIAL_PAYMENT_REPLAY_AFTER_SETTLEMENT_FAILED';
+    end if;
+end;
+$$;
 
 reset role;
 
@@ -540,7 +630,8 @@ begin
             'BANK_TRANSFER',
             null,
             'Pagatore Terzo Tentativo',
-            'Tentativo dopo saldo'
+            'Tentativo dopo saldo',
+            'e5000000-0000-0000-0000-000000000004'::uuid
         );
     exception
         when others then

@@ -15,6 +15,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  frontend:
+    name: Frontend typecheck and production build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
   test:
     name: Migrations, RLS, RPC, Storage, Edge Functions
     runs-on: ubuntu-latest
@@ -126,9 +147,13 @@ jobs:
 
           for test_file in "${tests[@]}"; do
             echo "::group::SQL test $(basename "$test_file")"
-            docker exec -i "$DB_CONTAINER" \
-              psql -v ON_ERROR_STOP=1 -U postgres -d postgres \
-              < "$test_file"
+            if grep -Eiq '^[[:space:]]*select[[:space:]]+([[:alnum:]_]+\.)?(plan|no_plan)[[:space:]]*\(' "$test_file"; then
+              supabase test db "$test_file" --local
+            else
+              docker exec -i "$DB_CONTAINER" \
+                psql -v ON_ERROR_STOP=1 -U postgres -d postgres \
+                < "$test_file"
+            fi
             echo "::endgroup::"
           done
 

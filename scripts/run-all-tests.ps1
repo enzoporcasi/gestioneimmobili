@@ -150,7 +150,11 @@ function Invoke-SqlTest {
 
     Write-Step "SQL test $($File.Name)"
     $sql = Get-Content -LiteralPath $File.FullName -Raw
-    $sql | & docker exec -i $DbContainer psql -v ON_ERROR_STOP=1 -U postgres -d postgres
+    if ($sql -match '(?im)^\s*select\s+(?:[a-z_][a-z0-9_]*\.)?(?:plan|no_plan)\s*\(') {
+        & npx supabase test db $File.FullName --local
+    } else {
+        $sql | & docker exec -i $DbContainer psql -v ON_ERROR_STOP=1 -U postgres -d postgres
+    }
     if ($LASTEXITCODE -ne 0) {
         $script:Failed.Add($File.Name)
         throw "Test SQL fallito: $($File.Name)"
