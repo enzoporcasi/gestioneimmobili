@@ -25,13 +25,16 @@ The exact file names and an as-built function inventory are maintained in `READM
 - The web client supports property list/detail/create/edit; creation applies the property and its complete ownership shares atomically.
 - Owner registration supports natural persons and legal entities; the creator receives scoped administrator access atomically.
 - The web client includes a filterable owner inventory and owner registration form.
+- Email/password signup requires name and surname and creates an application profile atomically. New accounts must confirm their email before obtaining a session; the frontend supports resending activation links and handling expired/invalid links.
+- Local Auth confirmation emails use `supabase/templates/confirmation.html` and Mailpit at `http://127.0.0.1:54324`; links return to the frontend on port 5173. Hosted projects require separate Auth/redirect/template configuration and a verified custom SMTP sender for real delivery. Existing confirmed accounts remain valid.
 - A Capacitor 8 Android project reuses the React web client and Supabase flows; device-level parity, usability verification and release signing remain pending.
 - SQL and Node end-to-end test scripts are present; their presence does not assert that they passed in every environment.
-- Ownership-share replacement, notification scheduler, push/e-mail delivery service and the full set of target RPCs are not included.
+- Ownership-share replacement, notification scheduler, application push/e-mail delivery service and the full set of target RPCs are not included. Supabase Auth confirmation email is a separate, implemented flow.
 
 ## Test assets
 - SQL smoke/integration tests cover schema, due dates, constraints, RLS isolation, billing, payments, contract termination, expenses, property-management RPCs and document security.
-- Node scripts cover Storage upload and document-download URL flows.
+- Node scripts cover Storage upload, document-download URL flows and email confirmation.
+- `supabase/tests/019_email_confirmation_e2e.mjs` verifies signup without a session, login denial before confirmation, local email delivery, resend/rate-limit handling, activation, profile access and single-use links, then removes its temporary user and messages. This flow passed locally on 2026-11-04; hosted SMTP delivery and the complete suite are not certified by that result.
 - `scripts/run-all-tests.ps1` runs the migrations/reset and SQL/Node suites against local Supabase.
 - Test execution status is not inferred from the presence of these files; use the runner and record its actual result.
 

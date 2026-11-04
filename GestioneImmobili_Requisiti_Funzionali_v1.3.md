@@ -43,6 +43,8 @@ Ruolo e perimetro sono separati: il ruolo stabilisce **cosa** l'utente può fare
 **RF-AUT-02 - Visibilità immobili.** Il Gestore visualizza soltanto gli immobili in cui almeno un Proprietario è associato al suo perimetro.  
 **RF-AUT-03 - Condivisione della gestione.** Lo stesso Proprietario può essere gestito da più utenti, eventualmente con ruoli differenti.
 
+**RF-AUT-04 - Conferma email e attivazione account.** La registrazione richiede nome, cognome, email e password. L'utente riceve un'email con link di attivazione monouso, valido un'ora; prima della conferma non ottiene una sessione e non può accedere con email/password. La pagina di accesso deve permettere il reinvio del link, rispettando i limiti del servizio, e segnalare link scaduti o non validi senza rivelare l'esistenza di un account. Il profilo applicativo viene creato alla registrazione, ma la conferma email non assegna ruoli o accessi al patrimonio di altri utenti.
+
 ## 4. Gestione Proprietari e comproprietà
 **RF-PRO-01 - Anagrafica proprietario.** Gestione di persone fisiche e, in prospettiva, persone giuridiche, con dati anagrafici, codice fiscale/partita IVA, recapiti, indirizzo, IBAN, note e documenti.  
 **RF-PRO-02 - Quote di proprietà.** Ogni Proprietario può essere associato a uno o più immobili con una percentuale di proprietà.  
@@ -2807,15 +2809,18 @@ La v1.3 non calcola automaticamente il prorata per periodi parziali. Il primo pe
 
 Questa sezione fotografa il codice presente, non certifica il completamento funzionale, la validazione in produzione o la presenza di un client UI. “Schema presente” indica che esistono tabelle/migrazioni; non implica che ogni flusso descritto sia disponibile all'utente.
 
+Aggiornamento autenticazione del 2026-11-04: il flusso di conferma email è implementato e verificato sullo stack Supabase locale; l'invio a caselle reali richiede configurazione SMTP del relativo ambiente online.
+
 | Area | Stato nel repository | Confine attuale |
 |---|---|---|
+| Registrazione e conferma email | Frontend e Supabase Auth implementati e verificati in locale | Nessuna sessione prima della conferma; template italiano, reinvio e gestione link scaduti/non validi. Mailpit intercetta le email locali; SMTP, mittente verificato, template e redirect devono essere configurati separatamente online. Gli account già confermati non vengono disattivati. |
 | Profili, Proprietari, accessi e inviti | Schema presente; helper, policy e frontend parziali | Creazione Proprietario e aggiornamento di solo email/cellulare disponibili via RPC; non sono presenti RPC applicative per creare/accettare/revocare inviti o amministrare l'intero perimetro. |
 | Immobili, quote, porzioni, Locatari e Contratti | Frontend e RPC parziali per il MVP | Sono implementati anagrafica Locatario per immobile, elenco Locatari/contratti, dettaglio e creazione contratto con attivazione esplicita, canone/periodicità/date/deposito e intero immobile o porzioni; la generazione rate considera solo contratti attivi. Un solo Locatario principale; non inclusi co-conduttori, modifica/archiviazione, variazioni storiche, prorata e copertura completa delle occupazioni. |
 | UX di modifica | Moduli web a pagina intera per Immobili e Proprietari | Solo cellulare ed email sono modificabili nell'anagrafica Proprietario; applicare lo stesso modello a pagina intera alle future funzioni. |
 | Canoni e Incassi | Implementazione database parziale/operativa | Generazione progressiva, vista saldo, registrazione pagamento totale e parziale e cessazione contratto hanno funzioni SQL; dashboard e UI non sono incluse. |
 | Spese e conguagli | Implementazione parziale | Esiste `create_expense_with_allocations`, con modalità quote/manuale e pagamento iniziale; non risultano le RPC generali di pagamento successivo, riallocazione e annullamento. |
 | Documenti | Flusso database/API parziale | Prenotazione, finalizzazione, registrazione esito scansione e autorizzazione download sono presenti; la scansione malware effettiva è esterna. |
-| Scadenze e notifiche | Schema presente | Non sono implementati nel repository scheduler, invio push/e-mail, template, preferenze utente e motore di consegna. |
+| Scadenze e notifiche | Schema presente | Non sono implementati nel repository scheduler, invio push/e-mail applicativo, relativi template, preferenze utente e motore di consegna; le email di conferma account sono invece gestite da Supabase Auth. |
 | Privacy e consensi | Schema presente | Sono presenti tabelle per accettazioni e richieste interessato; non è presente l'intero workflow RPC di gestione/esecuzione. |
 | Dashboard, report ed esportazioni | Requisiti progettuali | Non risultano viste/RPC applicative per dashboard e non è presente un frontend o un'esportazione CSV/Excel. |
 | App mobile e wireframe | Specifica UX | Non fanno parte del codice presente. |
