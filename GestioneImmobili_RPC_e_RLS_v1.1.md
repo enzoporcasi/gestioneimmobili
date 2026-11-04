@@ -335,8 +335,9 @@ La v1.1 definisce il comportamento target per RPC, RLS, Storage, atomicità e te
 | `update_property_details` | Implementata; aggiorna i dati descrittivi e catastali per utenti Manager sulla Property; audit. Quote e associazioni proprietarie non sono modificabili con questa RPC. |
 | `security.role_rank`, `can_access_owner`, `can_access_property`, `can_access_contract`, `can_access_installment`, `can_access_expense` | Implementati in `security`. |
 | `generate_due_installments` | Implementata per generazione progressiva esclusivamente sui contratti con stato gestionale `ACTIVE`; crea un record `billing_generation_runs`. |
+| `generate_contract_installments` | Implementata per il frontend; richiede Manager sul singolo contratto attivo, genera solo i periodi maturati fino a `current_date`, evita duplicati e registra audit. Non espone il generatore globale al client. |
 | `mark_installment_paid` | Implementata; registra un incasso per il residuo e lo alloca alla rata. |
-| `record_partial_installment_payment` | Implementata; valida l'importo rispetto al residuo e registra incasso/allocazione/audit in transazione. |
+| `record_partial_installment_payment` | Implementata; richiede `p_idempotency_key`, verifica Manager e residuo, registra incasso/allocazione/audit e risposta nella stessa transazione. Retry con stessa chiave e dati restituisce la risposta originale; dati diversi producono `IDEMPOTENCY_CONFLICT`. |
 | `terminate_contract` | Implementata; chiude contratto/locatari e marca `NOT_DUE` le rate future già generate secondo le regole SQL. |
 | `create_expense_with_allocations` | Implementata per creazione spesa, ripartizioni e pagamento iniziale opzionale. |
 | `security.can_access_document` | Implementata usando collegamenti documentali supportati. |
@@ -354,6 +355,7 @@ Non risultano presenti RPC per gestione inviti/accessi, modifica/archiviazione O
 - Ogni tabella pubblica con RLS ha ora almeno una policy: le relazioni contrattuali e finanziarie ereditano il perimetro delle entità collegate; scadenze e notifiche sono visibili all'utente assegnato/destinatario; i documenti legali sono consultabili solo se attivi e correnti. Inviti, mapping di sistema, audit, eventi di sicurezza, esecuzioni billing e chiavi di idempotenza restano esplicitamente non leggibili dal client.
 - `security.can_access_owner` e `security.can_access_property` richiedono anche un profilo `ACTIVE` e non archiviato. Le policy che dipendono da questi helper negano l'accesso a sessioni il cui profilo sia stato bloccato o archiviato.
 - `v_rent_installment_balance` usa `security_invoker=true`: le sue letture e i calcoli sulle allocazioni rispettano le policy RLS del chiamante.
+- Le viste `v_billing_installments`, `v_billing_receipts`, `v_billing_contracts` usano `security_invoker=true` per elenchi e dettaglio economico; SELECT è concesso solo a `authenticated`. Il frontend pagina e filtra sul server. Il Viewer può consultare ma non generare rate o registrare incassi.
 - Le policy di lettura base riguardano profilo proprio, Proprietari, Immobili, quote, porzioni, Contratti, Canoni, spese, accettazioni legali proprie e richieste interessato proprie. Esistono inoltre policy SELECT per documenti/versioni e relativi bridge supportati.
 - L'aggiornamento diretto autenticato è limitato ai campi profilo indicati nei GRANT. Le operazioni di business mutanti disponibili passano dalle RPC con GRANT esplicito.
 - La creazione e modifica degli immobili usa le RPC `SECURITY DEFINER` della migration `20261031170000_property_management_rpc.sql`; l'esecuzione è concessa solo a `authenticated`. Non sono concessi INSERT/UPDATE diretti sulle tabelle `properties` e `property_ownerships`.
@@ -375,7 +377,7 @@ Non risultano presenti RPC per gestione inviti/accessi, modifica/archiviazione O
 ### 17.3 Differenze rispetto alla specifica target
 
 - Gli output RPC correnti non seguono uniformemente l'involucro `success/data/correlation_id`: consultare la definizione SQL per il contratto reale di ciascuna funzione.
-- `mark_installment_paid` e `record_partial_installment_payment` non accettano una idempotency key; non promettere replay idempotente di queste operazioni.
+- `mark_installment_paid` non accetta una idempotency key. Il frontend usa invece `record_partial_installment_payment` anche per il saldo: dalla migration `20261103100000_idempotent_partial_installment_payment.sql` la chiave è obbligatoria e la logica originale è privata nello schema `security`.
 - `terminate_contract` e `create_expense_with_allocations` supportano idempotenza tramite chiave opzionale; il comportamento effettivo è definito nelle rispettive migration.
 - Le RPC immobili attuali non implementano idempotency key né la sostituzione delle quote in una seconda operazione. `update_property_details` non modifica la struttura proprietaria.
 - `create_owner_with_access` non implementa idempotency key; email e identificativi fiscali non creano né collegano un account Auth.
@@ -383,6 +385,7 @@ Non risultano presenti RPC per gestione inviti/accessi, modifica/archiviazione O
 - I casi di concorrenza, rollback, autorizzazione Storage e performance elencati nella sezione 14 sono criteri di verifica; la presenza dei test nel repository non attesta che ogni caso sia già validato nell'ambiente target.
 - `supabase/tests/012_property_management_rpc.sql` copre registrazione Owner, accesso del creatore, normalizzazione e duplicati, insieme a accesso per ruolo/perimetro, creazione/modifica immobili e validazione delle quote; le fixture vengono annullate con rollback.
 - `supabase/tests/014_contract_management.sql` copre il flusso Locatario/Contratto, i controlli perimetro e sovrapposizione e la generazione rate esclusivamente dopo l'attivazione; le fixture vengono annullate con rollback.
+- `supabase/tests/020_billing_workspace.sql` verifica generazione per contratto, ripetizione senza duplicati, saldo/storico dopo pagamento, replay, isolamento tra utenti e blocchi Viewer/contratto inattivo, con rollback. `021_billing_validation.mjs` verifica importi in centesimi e ripristino delle richieste pendenti.
 
 ### 17.4 Fonte autorevole e validazione
 

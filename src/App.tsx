@@ -10,6 +10,7 @@ const PropertyEditor = lazy(() => import('./features/properties/PropertyManageme
 const OwnersManagementPanel = lazy(() => import('./features/owners/OwnersManagementPanel').then((module) => ({ default: module.OwnersManagementPanel })))
 const DocumentsManagementPanel = lazy(() => import('./features/documents/DocumentsFeature').then((module) => ({ default: module.DocumentsManagementPanel })))
 const ContractsManagementPanel = lazy(() => import('./features/contracts/ContractsManagementPanel').then((module) => ({ default: module.ContractsManagementPanel })))
+const BillingManagementPanel = lazy(() => import('./features/billing/BillingManagementPanel').then((module) => ({ default: module.BillingManagementPanel })))
 
 function authenticationErrorMessage(error: AuthError, fallback: string) {
   if (error.status === 0) {
@@ -504,7 +505,7 @@ function useWorkspaceData(userId: string, initialName: string) {
   }
 
   return {
-    userName, profileError, properties, loadingProperties, propertyError,
+    userId, userName, profileError, properties, loadingProperties, propertyError,
     referenceCatalog, manageableOwners, loadingManageableOwners, manageableOwnersError,
     refreshReferenceCatalog, refreshManageableOwners, refreshProperties,
   }
@@ -543,6 +544,7 @@ const workspacePages: Record<Page, { label: string; symbol: string; description:
   contracts: { label: 'Contratti', symbol: '▤', description: 'Gestisci i contratti collegati agli immobili e ai Locatari.' },
   tenants: { label: 'Locatari', symbol: '♧', description: 'Consulta i Locatari collegati agli immobili che gestisci.' },
   documents: { label: 'Documenti', symbol: '▧', description: 'Allega e consulta i documenti dei Proprietari, degli immobili, dei Locatari e dei contratti.' },
+  billing: { label: 'Canoni e incassi', symbol: '€', description: 'Consulta rate, residui e incassi del tuo patrimonio.' },
 }
 
 function WorkspaceNavigationButton({ page, activePage, count, onPageChange }: Readonly<{
@@ -590,6 +592,7 @@ function WorkspaceSidebar({ page, propertyCount, open, onToggle, onPageChange }:
         ))}
         <div className="nav-divider" />
         <span className="nav-section-label">OPERATIVITÀ</span>
+        <WorkspaceNavigationButton page="billing" activePage={page} onPageChange={onPageChange} />
         <WorkspaceNavigationButton page="documents" activePage={page} onPageChange={onPageChange} />
         {unavailableSections.map((section) => (
           <div className="nav-item nav-item-disabled" key={section}>
@@ -784,6 +787,12 @@ function WorkspacePropertyList({ page, data, workflow }: Readonly<{
 
 function WorkspaceFeaturePage({ page, data, workflow, onPageChange, onFullPageChange }: WorkspacePageProps) {
   switch (page) {
+    case 'billing':
+      return (
+        <Suspense fallback={<LoadingScreen label="Caricamento Canoni e incassi..." />}>
+          <BillingManagementPanel properties={data.properties} userId={data.userId} onFullPageChange={onFullPageChange} />
+        </Suspense>
+      )
     case 'owners':
       return (
         <Suspense fallback={<LoadingScreen label="Caricamento Proprietari…" />}>

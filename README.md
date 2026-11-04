@@ -73,6 +73,7 @@ Le migration vanno eseguite in ordine lessicografico. Il set attuale include:
    - `20261101173000_raise_attachment_sensitivity.sql`
    - `20261101174000_cancel_reserved_document_upload.sql`
    - `20261101175000_allow_reserved_upload_cleanup.sql`
+   - `20261104100000_billing_workspace.sql`
 
 ## Funzionalità presenti nel codice
 
@@ -103,8 +104,14 @@ Le migration vanno eseguite in ordine lessicografico. Il set attuale include:
 - `expenses`, `expense_allocations`, `expense_payments`
 - `owner_settlement_items`
 - `v_rent_installment_balance` e `generate_due_installments()`
-- `record_partial_installment_payment()` per pagamenti parziali
+- `record_partial_installment_payment()` per pagamenti parziali o a saldo, con chiave idempotente obbligatoria e replay della risposta originale
 - `mark_installment_paid()` per registrazione del pagamento del residuo
+- sezione web **Canoni e incassi** con schede Rate/Incassi, filtri per immobile, contratto, stato e date, paginazione di 25 righe e importi riepilogativi limitati alla pagina corrente
+- dettaglio rata a pagina intera con dovuto, incassato, importo perso, residuo e storico incassi; i Manager possono registrare importi parziali o a saldo, i Viewer hanno sola consultazione
+- `v_billing_installments`, `v_billing_receipts` e `v_billing_contracts` usano `security_invoker=true` e rispettano le RLS; il frontend non usa chiavi privilegiate
+- `generate_contract_installments()` genera manualmente le rate maturate fino alla data corrente per un solo contratto attivo nel perimetro Manager; esecuzioni ripetute non duplicano le rate. Selezionare il contratto nei filtri per abilitare il comando; lo scheduler automatico resta esterno
+- una richiesta di pagamento dall'esito incerto viene conservata nella sessione della scheda del browser e riprovata con la stessa chiave, anche dopo refresh; non modificarla o sostituirla prima di averne verificato l'esito
+- non sono inclusi storno incassi, dichiarazione di perdita, esportazioni o prorata
 
 ### Documenti e scadenze
 - `documents`, `document_versions`, `deadlines`, `notification_rules`
@@ -204,6 +211,8 @@ psql "$DATABASE_URL" -f supabase/tests/012_property_management_rpc.sql
 node supabase/tests/011_storage_upload_e2e.mjs
 node supabase/tests/012_create_document_download_url_e2e.mjs
 node supabase/tests/019_email_confirmation_e2e.mjs
+psql "$DATABASE_URL" -f supabase/tests/020_billing_workspace.sql
+node supabase/tests/021_billing_validation.mjs
 ```
 
 Il test `019_email_confirmation_e2e.mjs` richiede Supabase locale, Mailpit e le variabili backend di test `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`. Verifica assenza di sessione e blocco del login prima della conferma, consegna email, reinvio o relativo rate limit, attivazione, accesso al profilo e link monouso; elimina account ed email temporanei. La casella predefinita è `http://127.0.0.1:54324`, sovrascrivibile con `SUPABASE_MAILPIT_URL`. I runner locale e CI includono il test insieme agli altri script Node. Questo singolo flusso è stato verificato in locale; ciò non certifica l'intera suite né il recapito SMTP online.

@@ -588,6 +588,50 @@ button.nav-item:hover,
   font-size: 13px;
 }
 
+.billing-toolbar,
+.billing-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.billing-toolbar { margin-bottom: 20px; }
+.billing-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--line);
+}
+.billing-filters > *,
+.billing-filters select,
+.billing-filters input { min-width: 0; width: 100%; }
+.billing-totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 16px;
+  margin: 20px 0 4px;
+}
+.billing-totals dt { color: #64746b; font-size: 12px; }
+.billing-totals dd { margin: 6px 0 0; color: var(--green-900); font-size: 22px; font-weight: 600; }
+.billing-scope { margin: 0 0 18px; color: #64746b; font-size: 11px; }
+.billing-number { font-variant-numeric: tabular-nums; }
+.billing-secondary { display: block; margin-top: 5px; font-size: 10px; color: #64746b; }
+.billing-status { display: inline-block; padding: 5px 8px; border-radius: 4px; background: #e9eee9; font-size: 11px; }
+.billing-status[data-status="OVERDUE"] { color: #922f36; background: #f9e9eb; }
+.billing-status[data-status="PAID"] { color: #285a3b; background: #e5f1e8; }
+.billing-status[data-status="PARTIAL"] { color: #775719; background: #faf0d7; }
+.billing-pagination { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); font-size: 12px; }
+.billing-payment-fields { margin: 0; padding: 0; border: 0; min-width: 0; }
+.billing-payment-section h2,
+.billing-detail .detail-section h2 { font-size: 18px; letter-spacing: 0; }
+.billing-notice { padding: 12px; border-left: 3px solid #b68b28; background: #faf3e0; font-size: 13px; }
+.billing-note { min-width: 140px; max-width: 300px; white-space: normal; overflow-wrap: anywhere; }
+.billing-detail .detail-section { margin-top: 28px; }
+.billing-workspace .table-scroll { border-top: 1px solid var(--line); }
+
 .contact-editor-form {
   max-width: 1000px;
 }

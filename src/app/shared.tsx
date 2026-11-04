@@ -1,10 +1,9 @@
 import { createContext, useContext, type ReactNode } from 'react'
 import type { Json, ManageableTenant, OwnerSummary, ReferenceCatalogItem } from '../lib/database.types'
 
-export type Page = 'overview' | 'properties' | 'owners' | 'contracts' | 'tenants' | 'documents'
+export type Page = 'overview' | 'properties' | 'owners' | 'contracts' | 'tenants' | 'documents' | 'billing'
 
 export const unavailableSections = [
-  'Canoni e incassi',
   'Spese',
   'Scadenze',
 ]

@@ -148,6 +148,51 @@ export type ManageableDocument = {
 type PropertyInsert = Omit<PropertyRow, 'id'> & { id?: string }
 type PropertyUpdate = Partial<Omit<PropertyRow, 'id'>>
 
+export type BillingInstallment = {
+  id: string
+  contract_id: string
+  property_id: string
+  property_name: string
+  contract_code: string
+  tenant_name: string | null
+  period_start: string
+  period_end: string
+  due_date: string
+  amount_due: number
+  amount_received: number
+  amount_lost: number
+  active_residual: number
+  calculated_status: string
+  can_record_payment: boolean
+}
+
+export type BillingReceipt = {
+  allocation_id: string
+  installment_id: string
+  receipt_id: string
+  payment_date: string
+  payment_method: string | null
+  payer_name: string | null
+  status: string
+  notes: string | null
+  created_at: string
+  amount: number
+  property_id: string
+  property_name: string
+  contract_code: string
+  period_start: string
+  period_end: string
+}
+
+export type BillingContract = {
+  id: string
+  internal_code: string
+  property_id: string
+  property_name: string
+  management_status: string
+  can_generate: boolean
+}
+
 export type Database = {
   public: {
     Tables: {
@@ -228,8 +273,38 @@ export type Database = {
         Relationships: []
       }
     }
-    Views: Record<string, never>
+    Views: {
+      v_billing_installments: { Row: BillingInstallment; Relationships: [] }
+      v_billing_receipts: { Row: BillingReceipt; Relationships: [] }
+      v_billing_contracts: { Row: BillingContract; Relationships: [] }
+    }
     Functions: {
+      generate_contract_installments: {
+        Args: { p_contract_id: string }
+        Returns: { contract_id: string; installments_created: number; reference_date: string }
+      }
+      record_partial_installment_payment: {
+        Args: {
+          p_installment_id: string
+          p_amount: number
+          p_payment_date: string
+          p_payment_method: string
+          p_idempotency_key: string
+          p_payer_tenant_id?: string | null
+          p_payer_name?: string | null
+          p_notes?: string | null
+        }
+        Returns: {
+          installment_id: string
+          receipt_id: string
+          allocation_id: string
+          payment_amount: number
+          amount_received: number
+          active_residual: number
+          calculated_status: string
+          correlation_id: string
+        }
+      }
       list_manageable_owners: {
         Args: Record<PropertyKey, never>
         Returns: ManageableOwner[]
