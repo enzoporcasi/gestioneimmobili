@@ -100,5 +100,95 @@ begin
 end $$;
 reset role;
 
+update security.document_security_settings set allow_unscanned_downloads = false;
+update public.document_versions
+set upload_status = 'PENDING_SCAN', malware_scan_status = 'PENDING',
+    finalized_at = now(), uploaded_at = now()
+where id = (select (data->>'document_version_id')::uuid from tmp_doc_a);
+
+set local role authenticated;
+do $$
+begin
+    if public.get_document_security_mode() then
+        raise exception 'DOCUMENT_BYPASS_DISABLED_MODE_INCORRECT';
+    end if;
+    begin
+        perform public.authorize_document_download((select (data->>'document_version_id')::uuid from tmp_doc_a));
+        raise exception 'UNSCANNED_DOCUMENT_ALLOWED_WITH_BYPASS_DISABLED';
+    exception when raise_exception then
+        if sqlerrm <> 'DOCUMENT_NOT_AVAILABLE' then raise; end if;
+    end;
+end;
+$$;
+reset role;
+
+update security.document_security_settings set allow_unscanned_downloads = true;
+set local role authenticated;
+do $$
+declare
+    v_authorization jsonb;
+begin
+    if not public.get_document_security_mode() then
+        raise exception 'DOCUMENT_BYPASS_ENABLED_MODE_INCORRECT';
+    end if;
+    v_authorization := public.authorize_document_download((select (data->>'document_version_id')::uuid from tmp_doc_a));
+    if v_authorization->>'scan_skipped' <> 'true' then
+        raise exception 'DOCUMENT_BYPASS_NOT_REPORTED';
+    end if;
+    if exists (
+        select 1 from public.document_versions
+        where id = (select (data->>'document_version_id')::uuid from tmp_doc_a)
+          and (malware_scan_status <> 'PENDING' or upload_status <> 'PENDING_SCAN')
+    ) then
+        raise exception 'DOCUMENT_BYPASS_CHANGED_SCAN_VERDICT';
+    end if;
+    begin
+        update security.document_security_settings set allow_unscanned_downloads = false;
+        raise exception 'DOCUMENT_BYPASS_CLIENT_CAN_CHANGE_SETTING';
+    exception when insufficient_privilege then null;
+    end;
+    begin
+        perform public.authorize_document_download((select (data->>'document_version_id')::uuid from tmp_doc_b));
+        raise exception 'DOCUMENT_BYPASS_CROSS_SCOPE_DOWNLOAD_ALLOWED';
+    exception when raise_exception then
+        if sqlerrm <> 'ACCESS_DENIED' then raise; end if;
+    end;
+end;
+$$;
+reset role;
+
+update public.document_versions
+set upload_status = 'RESERVED', finalized_at = null, uploaded_at = null
+where id = (select (data->>'document_version_id')::uuid from tmp_doc_a);
+set local role authenticated;
+do $$
+begin
+    begin
+        perform public.authorize_document_download((select (data->>'document_version_id')::uuid from tmp_doc_a));
+        raise exception 'DOCUMENT_BYPASS_INCOMPLETE_UPLOAD_ALLOWED';
+    exception when raise_exception then
+        if sqlerrm <> 'DOCUMENT_NOT_AVAILABLE' then raise; end if;
+    end;
+end;
+$$;
+reset role;
+
+update public.document_versions
+set upload_status = 'REJECTED', malware_scan_status = 'INFECTED',
+    finalized_at = now(), uploaded_at = now()
+where id = (select (data->>'document_version_id')::uuid from tmp_doc_a);
+set local role authenticated;
+do $$
+begin
+    begin
+        perform public.authorize_document_download((select (data->>'document_version_id')::uuid from tmp_doc_a));
+        raise exception 'DOCUMENT_BYPASS_INFECTED_DOCUMENT_ALLOWED';
+    exception when raise_exception then
+        if sqlerrm <> 'DOCUMENT_NOT_AVAILABLE' then raise; end if;
+    end;
+end;
+$$;
+reset role;
+
 rollback;
 \echo 'DOCUMENT RLS TEST PASSED'

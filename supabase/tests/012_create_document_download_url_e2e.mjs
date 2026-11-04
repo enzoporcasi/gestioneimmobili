@@ -23,6 +23,7 @@ async function cleanup() {
   if (path) await admin.storage.from('property-documents').remove([path])
   if (docId) {
     await admin.from('property_documents').delete().eq('document_id', docId)
+    await admin.from('documents').update({ current_version_id: null }).eq('id', docId)
     await admin.from('document_versions').delete().eq('document_id', docId)
     await admin.from('documents').delete().eq('id', docId)
   }
@@ -47,6 +48,26 @@ try {
   docId=reserve.data.document_id; versionId=reserve.data.document_version_id; path=reserve.data.storage_path
   ok((await a.storage.from('property-documents').upload(path,pdf,{contentType:'application/pdf',upsert:false})).error,'upload')
   ok((await a.rpc('finalize_document_upload',{p_document_version_id:versionId,p_actual_mime_type:'application/pdf',p_actual_size_bytes:pdf.length,p_checksum:checksum})).error,'finalize')
+  const mode = await a.rpc('get_document_security_mode'); ok(mode.error, 'security mode')
+  const pendingDownload = await a.functions.invoke('create-document-download-url', { body: { document_version_id: versionId } })
+  if (mode.data === true) {
+    ok(pendingDownload.error, 'unscanned download')
+    const pendingBytes = await fetch(pendingDownload.data.signed_url)
+    if (!pendingBytes.ok || !Buffer.from(await pendingBytes.arrayBuffer()).equals(pdf)) {
+      throw new Error('UNSCANNED_DOWNLOAD_FAILED')
+    }
+    const pendingVersion = await admin.from('document_versions').select('upload_status, malware_scan_status').eq('id', versionId).single()
+    ok(pendingVersion.error, 'pending version')
+    if (pendingVersion.data.upload_status !== 'PENDING_SCAN' || pendingVersion.data.malware_scan_status !== 'PENDING') {
+      throw new Error('BYPASS_CHANGED_SCAN_VERDICT')
+    }
+    ok((await b.auth.signInWithPassword({ email:'utente.b@test.local', password:'TestUserB-2026!' })).error, 'login B pending')
+    const deniedPending = await b.functions.invoke('create-document-download-url', { body: { document_version_id: versionId } })
+    if (!deniedPending.error) throw new Error('USER_B_UNSCANNED_DOWNLOAD_AUTHORIZED')
+    console.log('UNSCANNED DOCUMENT DOWNLOAD AND CROSS-SCOPE DENIAL PASSED')
+  } else if (!pendingDownload.error) {
+    throw new Error('UNSCANNED_DOWNLOAD_ALLOWED_WITH_BYPASS_DISABLED')
+  }
   ok((await admin.rpc('complete_document_scan',{p_document_version_id:versionId,p_scan_result:'CLEAN'})).error,'scan')
 
   const invokeA = await a.functions.invoke('create-document-download-url', { body:{document_version_id:versionId} })

@@ -354,6 +354,10 @@ export type Database = {
         Args: Record<PropertyKey, never>
         Returns: ManageableDocument[]
       }
+      get_document_security_mode: {
+        Args: Record<PropertyKey, never>
+        Returns: boolean
+      }
       reserve_document_upload: {
         Args: {
           p_entity_type: string

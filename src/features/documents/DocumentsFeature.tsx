@@ -13,6 +13,7 @@ export function DocumentsManagementPanel() {
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
+  const [allowUnscannedDownloads, setAllowUnscannedDownloads] = useState(false)
   const attachments = useDocumentAttachments(entityType)
 
   async function loadDocuments() {
@@ -22,17 +23,20 @@ export function DocumentsManagementPanel() {
       return
     }
     setError('')
-    const [entityResult, documentResult] = await Promise.all([
+    const [entityResult, documentResult, securityModeResult] = await Promise.all([
       supabase.rpc('list_manageable_document_entities'),
       supabase.rpc('list_manageable_documents'),
+      supabase.rpc('get_document_security_mode'),
     ])
-    const errors = [entityResult.error, documentResult.error].filter(Boolean)
+    const errors = [entityResult.error, documentResult.error, securityModeResult.error].filter(Boolean)
     if (errors.length > 0) {
+      setAllowUnscannedDownloads(false)
       setError('Non è stato possibile caricare entità e documenti.')
       console.error('Document workspace queries failed', errors)
     } else {
       setEntities(entityResult.data ?? [])
       setDocuments(documentResult.data ?? [])
+      setAllowUnscannedDownloads(securityModeResult.data === true)
     }
     setLoading(false)
   }
@@ -66,7 +70,7 @@ export function DocumentsManagementPanel() {
     }
     const count = attachments.drafts.length
     attachments.clearUploadedDrafts()
-    setMessage(`${count} ${count === 1 ? 'documento caricato' : 'documenti caricati'}. In attesa delle verifiche di sicurezza.`)
+    setMessage(`${count} ${count === 1 ? 'documento caricato' : 'documenti caricati'}.`)
     await loadDocuments()
   }
 
@@ -133,6 +137,9 @@ export function DocumentsManagementPanel() {
   }
   const visibleEntities = entities.filter((entity) => entity.entity_type === entityType)
   const hasPendingDocuments = attachments.drafts.some((draft) => draft.status === 'error')
+  let uploadButtonLabel = 'Carica documenti'
+  if (uploading) uploadButtonLabel = 'Caricamento…'
+  else if (hasPendingDocuments) uploadButtonLabel = 'Riprova caricamenti'
 
   return (
     <div className="document-workspace">
@@ -169,11 +176,12 @@ export function DocumentsManagementPanel() {
             </select>
           </FormField>
         </div>
-        {loading ? (
+        {loading && (
           <LoadingScreen label="Caricamento entità e documenti…" compact />
-        ) : visibleEntities.length === 0 ? (
+        )}
+        {!loading && visibleEntities.length === 0 && (
           <p className="detail-muted">Non hai entità di questo tipo nel tuo perimetro Manager.</p>
-        ) : null}
+        )}
         <DocumentAttachmentFields
           attachments={attachments}
           disabled={uploading || !entityId}
@@ -181,7 +189,7 @@ export function DocumentsManagementPanel() {
         {(error || attachments.error) && (
           <p className="form-error" role="alert">{error || attachments.error}</p>
         )}
-        {message && <p className="document-success" role="status">{message}</p>}
+        {message && <p className="document-success"><output>{message}</output></p>}
         <div className="dialog-footer">
           <button
             className="primary-button"
@@ -189,7 +197,7 @@ export function DocumentsManagementPanel() {
             onClick={() => void handleUpload()}
             type="button"
           >
-            {uploading ? 'Caricamento…' : hasPendingDocuments ? 'Riprova caricamenti' : 'Carica documenti'}
+            {uploadButtonLabel}
           </button>
           <button
             className="secondary-button"
@@ -212,19 +220,30 @@ export function DocumentsManagementPanel() {
             <p>{documents.length} {documents.length === 1 ? 'documento' : 'documenti'} visibili nel tuo perimetro.</p>
           </div>
         </div>
-        {error && documents.length === 0 ? (
+        {error && documents.length === 0 && (
           <div className="inline-error" role="alert">{error}</div>
-        ) : documents.length === 0 ? (
+        )}
+        {!error && documents.length === 0 && (
           <div className="empty-state">
             <div className="empty-icon">▧</div>
             <h3>Nessun documento ancora</h3>
             <p>Quando alleghi un file a un Proprietario, Immobile, Locatario o Contratto, lo troverai qui.</p>
           </div>
-        ) : (
+        )}
+        {documents.length > 0 && (
           <div className="document-list">
             {documents.map((document) => {
-              const isAvailable = document.upload_status === 'AVAILABLE'
+              const isScanned = document.upload_status === 'AVAILABLE'
                 && document.malware_scan_status === 'CLEAN'
+              const isUnscannedDownloadAllowed = allowUnscannedDownloads
+                && document.upload_status === 'PENDING_SCAN'
+                && document.malware_scan_status === 'PENDING'
+              const isAvailable = isScanned || isUnscannedDownloadAllowed
+              let statusLabel = document.upload_status
+              if (isScanned) statusLabel = 'Verificato'
+              else if (isUnscannedDownloadAllowed) statusLabel = 'Non scansionato'
+              else if (document.upload_status === 'PENDING_SCAN') statusLabel = 'In verifica'
+              else if (document.upload_status === 'RESERVED') statusLabel = 'Upload incompleto'
               return (
                 <article className="document-list-item" key={`${document.document_id}-${document.entity_type}-${document.entity_id}`}>
                   <div className="document-list-copy">
@@ -234,13 +253,7 @@ export function DocumentsManagementPanel() {
                   </div>
                   <div className="document-list-actions">
                     <span className={`document-status-badge${isAvailable ? ' document-status-ready' : ''}`}>
-                      {isAvailable
-                        ? 'Verificato'
-                        : document.upload_status === 'PENDING_SCAN'
-                          ? 'In verifica'
-                          : document.upload_status === 'RESERVED'
-                            ? 'Upload incompleto'
-                            : document.upload_status}
+                      {statusLabel}
                     </span>
                     {isAvailable && (
                       <button className="secondary-button" onClick={() => void openDocument(document)} type="button">
@@ -253,7 +266,6 @@ export function DocumentsManagementPanel() {
             })}
           </div>
         )}
-        <p className="detail-muted">I documenti restano privati e sono scaricabili solo dopo la scansione di sicurezza.</p>
       </section>
     </div>
   )
