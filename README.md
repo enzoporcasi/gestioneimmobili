@@ -75,6 +75,7 @@ Le migration vanno eseguite in ordine lessicografico. Il set attuale include:
    - `20261101175000_allow_reserved_upload_cleanup.sql`
    - `20261104100000_billing_workspace.sql`
    - `20261104110000_expenses_workspace.sql`
+   - `20261104120000_billing_automation.sql`
 
 ## Funzionalità presenti nel codice
 
@@ -110,9 +111,36 @@ Le migration vanno eseguite in ordine lessicografico. Il set attuale include:
 - sezione web **Canoni e incassi** con schede Rate/Incassi, filtri per immobile, contratto, stato e date, paginazione di 25 righe e importi riepilogativi limitati alla pagina corrente
 - dettaglio rata a pagina intera con dovuto, incassato, importo perso, residuo e storico incassi; i Manager possono registrare importi parziali o a saldo, i Viewer hanno sola consultazione
 - `v_billing_installments`, `v_billing_receipts` e `v_billing_contracts` usano `security_invoker=true` e rispettano le RLS; il frontend non usa chiavi privilegiate
-- `generate_contract_installments()` genera manualmente le rate maturate fino alla data corrente per un solo contratto attivo nel perimetro Manager; esecuzioni ripetute non duplicano le rate. Selezionare il contratto nei filtri per abilitare il comando; lo scheduler automatico resta esterno
+- `generate_contract_installments()` genera manualmente le rate maturate fino alla data corrente per un solo contratto attivo nel perimetro Manager; esecuzioni ripetute non duplicano le rate. Selezionare il contratto nei filtri per abilitare il comando; lo scheduler automatico e disponibile tramite il worker descritto sotto
 - una richiesta di pagamento dall'esito incerto viene conservata nella sessione della scheda del browser e riprovata con la stessa chiave, anche dopo refresh; non modificarla o sostituirla prima di averne verificato l'esito
 - non sono inclusi storno incassi, dichiarazione di perdita, esportazioni o prorata
+
+### Scheduler rate e promemoria email
+
+Il worker backend `scripts/automation/worker.mjs` funziona indipendentemente dal frontend: controlla ogni minuto la coda e tenta ogni 15 minuti la generazione delle rate maturate, recuperando anche i periodi mancanti. Usa la data corrente in `Europe/Rome`; il generatore considera solo contratti attivi e non crea duplicati. Docker Desktop e Supabase devono essere accesi: a computer spento non viene eseguito alcun job, e al riavvio vengono recuperati i periodi mancanti.
+
+Avvio locale, dalla root del repository:
+
+```powershell
+.\scripts\start-local-automation.ps1
+```
+
+Lo script costruisce l'immagine Node e avvia `gestioneimmobili_automation` nella rete privata dello stack Supabase, senza pubblicare porte. Il container usa l'utente non privilegiato `node`, filesystem in sola lettura e riavvio automatico `unless-stopped`. La chiave backend viene recuperata dal Supabase locale e passata al container a runtime: non viene inserita nell'immagine, nel frontend o in file versionati. Il primo avvio richiede accesso a Docker Hub e npm.
+
+I destinatari sono gli utenti con email confermata, profilo attivo e ruolo Manager/Administrator su almeno un Proprietario attualmente associato all'immobile; non vengono inviate email ai Locatari. Per ciascuna rata e destinatario sono previsti tre avvisi: tre giorni prima alle 09:00, il giorno della scadenza alle 09:00 e una volta il giorno successivo alle 09:00, nel fuso `Europe/Rome`. Un avviso anticipato superato non viene inviato retroattivamente; per rate gia scadute e ancora aperte viene recuperato l'avviso di ritardo.
+
+Scadenze, regole e consegne sono persistite nelle tabelle esistenti. Il worker ricontrolla residuo, stato della rata, email e autorizzazioni prima di assegnare una consegna; gli avvisi non piu applicabili vengono annullati. La coda usa chiavi uniche, lease di due minuti, fino a cinque tentativi e retry con attesa crescente; ogni ciclo elabora al massimo 20 email. Le RPC `run_billing_automation`, `claim_rent_notification` e `complete_rent_notification` sono eseguibili solo dal backend `service_role`, non dal browser.
+
+In locale SMTP punta a Mailpit (`inbucket:1025` nella rete Docker): le email sono visibili su **http://127.0.0.1:54324**, non vengono recapitate all'esterno. Per un ambiente online occorre distribuire il worker su un servizio backend sempre acceso, impostando `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `APP_URL` HTTPS e `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`. Il provider SMTP deve avere un mittente verificato; le connessioni non locali richiedono TLS. La configurazione SMTP del worker e separata da quella delle email di autenticazione di Supabase. Non distribuire in produzione lo script locale con gli host Docker di sviluppo.
+
+Per consultare i log o arrestare solo l'automazione:
+
+```powershell
+docker logs --tail 50 gestioneimmobili_automation
+.\scripts\start-local-automation.ps1 -Stop
+```
+
+Arrestare il worker prima di `supabase stop` o `supabase db reset`, quindi riavviarlo dopo Supabase con lo script. Il reset e distruttivo e non serve per avviare lo scheduler. Non vengono ancora forniti push mobili, preferenze notifiche nell'interfaccia o un pannello di monitoraggio della coda. La deduplica della coda evita gli invii ripetuti ordinari; SMTP non offre una garanzia exactly-once: un arresto dopo l'accettazione dell'email ma prima della conferma database puo produrre una riconsegna. Il Message-ID resta stabile, ma il provider non e obbligato a deduplicarlo.
 
 ### Spese immobili
 - voce di menu **Spese** con elenco paginato di 25 righe, filtri per immobile, categoria e stato e dettaglio delle competenze e dei pagamenti visibili secondo il perimetro RLS
@@ -175,7 +203,7 @@ In locale `supabase/config.toml` abilita `auth.email.enable_confirmations = true
 
 Le email locali vengono intercettate da Mailpit e sono consultabili su **http://127.0.0.1:54324**: non vengono recapitate a Gmail o ad altre caselle reali. Docker Desktop e lo stack `npx supabase start` devono essere attivi. Per ricaricare modifiche a configurazione Auth o template, eseguire `npx supabase stop` e poi `npx supabase start`; non serve un reset del database. Gli utenti del seed e gli account già confermati restano validi.
 
-Per un progetto Supabase online configurare separatamente conferma email, Site URL e redirect HTTPS del relativo frontend. Per inviare email a utenti reali occorre un provider SMTP, ad esempio Brevo o Resend, con mittente/dominio verificato e le relative impostazioni DNS. Host, porta, utente e password SMTP vanno configurati nel backend Supabase, mai nelle variabili `VITE_*`. Il template locale va riportato nelle impostazioni Email Templates del progetto hosted; la configurazione locale non viene applicata automaticamente online. Le email di autenticazione non sostituiscono il futuro servizio di notifiche applicative per le scadenze.
+Per un progetto Supabase online configurare separatamente conferma email, Site URL e redirect HTTPS del relativo frontend. Per inviare email a utenti reali occorre un provider SMTP, ad esempio Brevo o Resend, con mittente/dominio verificato e le relative impostazioni DNS. Host, porta, utente e password SMTP vanno configurati nel backend Supabase, mai nelle variabili `VITE_*`. Il template locale va riportato nelle impostazioni Email Templates del progetto hosted; la configurazione locale non viene applicata automaticamente online. Le email di autenticazione sono separate dai promemoria del worker, il cui SMTP va configurato indipendentemente.
 
 ## App Android
 
@@ -225,18 +253,20 @@ psql "$DATABASE_URL" -f supabase/tests/020_billing_workspace.sql
 node supabase/tests/021_billing_validation.mjs
 psql "$DATABASE_URL" -f supabase/tests/022_expenses_workspace.sql
 node supabase/tests/023_expense_draft_validation.mjs
+psql "$DATABASE_URL" -f supabase/tests/024_billing_automation.sql
+node supabase/tests/025_notification_worker.mjs
 ```
 
 Il test `019_email_confirmation_e2e.mjs` richiede Supabase locale, Mailpit e le variabili backend di test `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`. Verifica assenza di sessione e blocco del login prima della conferma, consegna email, reinvio o relativo rate limit, attivazione, accesso al profilo e link monouso; elimina account ed email temporanei. La casella predefinita è `http://127.0.0.1:54324`, sovrascrivibile con `SUPABASE_MAILPIT_URL`. I runner locale e CI includono il test insieme agli altri script Node. Questo singolo flusso è stato verificato in locale; ciò non certifica l'intera suite né il recapito SMTP online.
 
 ## Avvertenze e caveats
 1. Eseguire prima in ambiente locale e verificare il setup Auth/Storage.
-2. Lo scanner malware, il job di generazione canoni e il canale di notifiche email/push sono esterni alle migration SQL e richiedono componenti server-side aggiuntivi.
+2. Lo scheduler rate e i promemoria email richiedono il worker backend incluso nel repository; scanner malware e push richiedono ancora componenti esterni.
 3. La `service role` non va usata lato app mobile o frontend.
 4. I test RLS richiedono utenti Auth di test; vedi `supabase/tests/004_rls_isolation.sql`.
 5. Non tutte le RPC mutanti sono idempotenti: verificare la specifica e le firme SQL, in particolare per i pagamenti delle rate.
 6. Prima del deployment in produzione occorre completare test di performance e sicurezza, inclusi `EXPLAIN (ANALYZE, BUFFERS)` per query critiche e controllo dei permessi Storage.
-7. Scheduler del generatore, notifiche applicative push/e-mail e scanner malware sono componenti esterni non forniti da queste migration. Le email di conferma account sono invece gestite da Supabase Auth, con Mailpit in locale e SMTP da configurare online.
+7. Scheduler e promemoria email sono forniti dal worker Node/Docker; push e scanner malware non sono implementati. Le email di conferma account restano gestite separatamente da Supabase Auth, con Mailpit in locale e SMTP da configurare online.
 
 ## Obiettivo del repository
 
