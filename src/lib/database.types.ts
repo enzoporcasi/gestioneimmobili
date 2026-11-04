@@ -193,6 +193,29 @@ export type BillingContract = {
   can_generate: boolean
 }
 
+export type ExpenseRow = {
+  id: string
+  property_id: string
+  property_name: string
+  category: string
+  description: string
+  competence_date: string
+  total_amount: number
+  status: string
+  allocation_mode: string
+  notes: string | null
+  created_at: string
+  can_manage: boolean
+}
+
+export type ExpenseProperty = { id: string; name: string; internal_code: string; can_manage: boolean }
+export type ExpenseOwnership = {
+  id: string; property_id: string; owner_id: string; owner_name: string
+  ownership_percentage: number; valid_from: string; valid_to: string | null
+}
+export type ExpenseAllocation = { id: string; expense_id: string; owner_name: string; percentage: number | null; allocated_amount: number }
+export type ExpensePayment = { id: string; expense_id: string; payment_date: string; amount: number; payment_method: string | null; status: string; payer_name: string | null }
+
 export type Database = {
   public: {
     Tables: {
@@ -277,8 +300,32 @@ export type Database = {
       v_billing_installments: { Row: BillingInstallment; Relationships: [] }
       v_billing_receipts: { Row: BillingReceipt; Relationships: [] }
       v_billing_contracts: { Row: BillingContract; Relationships: [] }
+      v_expenses_workspace: { Row: ExpenseRow; Relationships: [] }
+      v_expense_properties: { Row: ExpenseProperty; Relationships: [] }
+      v_expense_ownerships: { Row: ExpenseOwnership; Relationships: [] }
+      v_expense_allocations: { Row: ExpenseAllocation; Relationships: [] }
+      v_expense_payments: { Row: ExpensePayment; Relationships: [] }
     }
     Functions: {
+      create_expense_with_allocations: {
+        Args: {
+          p_property_id: string
+          p_rentable_space_id: string | null
+          p_category: string
+          p_description: string
+          p_competence_date: string
+          p_total_amount: number
+          p_allocation_mode: string
+          p_manual_allocations?: Json | null
+          p_first_payment_amount?: number | null
+          p_first_payment_date?: string | null
+          p_payer_owner_id?: string | null
+          p_payment_method?: string | null
+          p_notes?: string | null
+          p_idempotency_key?: string | null
+        }
+        Returns: { expense_id: string; expense_status: string; total_amount: number; allocation_count: number }
+      }
       generate_contract_installments: {
         Args: { p_contract_id: string }
         Returns: { contract_id: string; installments_created: number; reference_date: string }

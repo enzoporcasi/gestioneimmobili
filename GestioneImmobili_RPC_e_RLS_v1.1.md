@@ -340,6 +340,7 @@ La v1.1 definisce il comportamento target per RPC, RLS, Storage, atomicità e te
 | `record_partial_installment_payment` | Implementata; richiede `p_idempotency_key`, verifica Manager e residuo, registra incasso/allocazione/audit e risposta nella stessa transazione. Retry con stessa chiave e dati restituisce la risposta originale; dati diversi producono `IDEMPOTENCY_CONFLICT`. |
 | `terminate_contract` | Implementata; chiude contratto/locatari e marca `NOT_DUE` le rate future già generate secondo le regole SQL. |
 | `create_expense_with_allocations` | Implementata per creazione spesa, ripartizioni e pagamento iniziale opzionale. |
+| `v_expenses_workspace`, `v_expense_properties`, `v_expense_ownerships`, `v_expense_allocations`, `v_expense_payments` | Viste `security_invoker` per elenco/dettaglio spese e opzioni del form. Le letture rispettano le RLS di immobili, Proprietari, competenze e pagamenti; nessun privilegio di scrittura diretta aggiunto. |
 | `security.can_access_document` | Implementata usando collegamenti documentali supportati. |
 | `reserve_document_upload`, `finalize_document_upload` | Implementate per prenotazione e finalizzazione upload. |
 | `list_document_categories`, `list_manageable_document_entities`, `list_manageable_documents` | Implementate per cataloghi per entità e workspace documentale; incluse le associazioni e i controlli RLS del Locatario. |
@@ -379,6 +380,8 @@ Non risultano presenti RPC per gestione inviti/accessi, modifica/archiviazione O
 - Gli output RPC correnti non seguono uniformemente l'involucro `success/data/correlation_id`: consultare la definizione SQL per il contratto reale di ciascuna funzione.
 - `mark_installment_paid` non accetta una idempotency key. Il frontend usa invece `record_partial_installment_payment` anche per il saldo: dalla migration `20261103100000_idempotent_partial_installment_payment.sql` la chiave è obbligatoria e la logica originale è privata nello schema `security`.
 - `terminate_contract` e `create_expense_with_allocations` supportano idempotenza tramite chiave opzionale; il comportamento effettivo è definito nelle rispettive migration.
+- La UI Spese invia sempre `p_idempotency_key`, usa `OWNERSHIP_QUOTAS` sull'intero immobile e ammette il primo pagamento contestuale. Da menu richiede la scelta immobile; dalla scheda immobile riusa lo stesso editor con contesto fisso. Non espone pagamenti successivi, riallocazione, modifica o annullamento e non modifica le dashboard.
+- La migration `20261104110000_expenses_workspace.sql` aggiunge le viste e il valore `PARTIALLY_PAID` del catalogo `expense_status`, necessario per il primo pagamento parziale. `022_expenses_workspace.sql` verifica creazione/replay, pagamento parziale, totale competenze, isolamento tra utenti e permessi Viewer; `023_expense_draft_validation.mjs` verifica il ripristino delle richieste pendenti.
 - Le RPC immobili attuali non implementano idempotency key né la sostituzione delle quote in una seconda operazione. `update_property_details` non modifica la struttura proprietaria.
 - `create_owner_with_access` non implementa idempotency key; email e identificativi fiscali non creano né collegano un account Auth.
 - La matrice RLS della sezione 9 è il target desiderato, non la descrizione delle policy effettivamente presenti.

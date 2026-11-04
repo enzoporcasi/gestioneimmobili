@@ -74,6 +74,7 @@ Le migration vanno eseguite in ordine lessicografico. Il set attuale include:
    - `20261101174000_cancel_reserved_document_upload.sql`
    - `20261101175000_allow_reserved_upload_cleanup.sql`
    - `20261104100000_billing_workspace.sql`
+   - `20261104110000_expenses_workspace.sql`
 
 ## Funzionalità presenti nel codice
 
@@ -112,6 +113,15 @@ Le migration vanno eseguite in ordine lessicografico. Il set attuale include:
 - `generate_contract_installments()` genera manualmente le rate maturate fino alla data corrente per un solo contratto attivo nel perimetro Manager; esecuzioni ripetute non duplicano le rate. Selezionare il contratto nei filtri per abilitare il comando; lo scheduler automatico resta esterno
 - una richiesta di pagamento dall'esito incerto viene conservata nella sessione della scheda del browser e riprovata con la stessa chiave, anche dopo refresh; non modificarla o sostituirla prima di averne verificato l'esito
 - non sono inclusi storno incassi, dichiarazione di perdita, esportazioni o prorata
+
+### Spese immobili
+- voce di menu **Spese** con elenco paginato di 25 righe, filtri per immobile, categoria e stato e dettaglio delle competenze e dei pagamenti visibili secondo il perimetro RLS
+- inserimento da **Spese > Nuova spesa**, scegliendo un immobile gestibile, oppure dalla **scheda immobile > Nuova spesa**, con immobile gia definito e non modificabile; entrambi usano lo stesso editor a pagina intera
+- categoria da catalogo, descrizione, data di competenza, importo totale e note; la ripartizione automatica usa le quote proprietarie valide alla data di competenza e richiede un totale del 100%
+- primo pagamento facoltativo, parziale o totale, con data, Proprietario pagatore e metodo; spesa, ripartizioni e primo pagamento vengono salvati atomicamente tramite `create_expense_with_allocations`
+- i Manager possono inserire; i Viewer hanno sola consultazione. Le viste `v_expenses_workspace`, `v_expense_properties`, `v_expense_ownerships`, `v_expense_allocations` e `v_expense_payments` usano `security_invoker=true`
+- il frontend invia sempre una chiave idempotente e conserva nella sessione della scheda la richiesta in attesa di conferma, per consentire retry senza duplicare la spesa
+- questa prima UI opera sull'intero immobile e con ripartizione automatica; porzioni, ripartizione manuale, allegati spesa, modifica/annullamento, pagamenti successivi e revisione delle dashboard non sono inclusi
 
 ### Documenti e scadenze
 - `documents`, `document_versions`, `deadlines`, `notification_rules`
@@ -213,6 +223,8 @@ node supabase/tests/012_create_document_download_url_e2e.mjs
 node supabase/tests/019_email_confirmation_e2e.mjs
 psql "$DATABASE_URL" -f supabase/tests/020_billing_workspace.sql
 node supabase/tests/021_billing_validation.mjs
+psql "$DATABASE_URL" -f supabase/tests/022_expenses_workspace.sql
+node supabase/tests/023_expense_draft_validation.mjs
 ```
 
 Il test `019_email_confirmation_e2e.mjs` richiede Supabase locale, Mailpit e le variabili backend di test `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`. Verifica assenza di sessione e blocco del login prima della conferma, consegna email, reinvio o relativo rate limit, attivazione, accesso al profilo e link monouso; elimina account ed email temporanei. La casella predefinita è `http://127.0.0.1:54324`, sovrascrivibile con `SUPABASE_MAILPIT_URL`. I runner locale e CI includono il test insieme agli altri script Node. Questo singolo flusso è stato verificato in locale; ciò non certifica l'intera suite né il recapito SMTP online.

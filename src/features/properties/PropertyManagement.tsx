@@ -36,12 +36,14 @@ export function PropertyDetailDialog({
   manageableOwners,
   onClose,
   onEdit,
-}: {
+  onAddExpense,
+}: Readonly<{
   property: PropertyRow
   manageableOwners: ManageableOwner[]
   onClose: () => void
   onEdit: () => void
-}) {
+  onAddExpense: () => void
+}>) {
   const { items: catalogItems } = useReferenceCatalog()
   const [ownerships, setOwnerships] = useState<PropertyOwnershipRow[]>([])
   const [ownersById, setOwnersById] = useState<Map<string, OwnerSummary>>(new Map())
@@ -213,6 +215,7 @@ export function PropertyDetailDialog({
         )}
 
         <div className="dialog-footer">
+          {canEdit && <button className="secondary-button" onClick={onAddExpense} type="button">Nuova spesa</button>}
           {canEdit && (
             <button className="primary-button" onClick={onEdit} type="button">
               Modifica immobile

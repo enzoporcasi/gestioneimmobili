@@ -11,6 +11,8 @@ const OwnersManagementPanel = lazy(() => import('./features/owners/OwnersManagem
 const DocumentsManagementPanel = lazy(() => import('./features/documents/DocumentsFeature').then((module) => ({ default: module.DocumentsManagementPanel })))
 const ContractsManagementPanel = lazy(() => import('./features/contracts/ContractsManagementPanel').then((module) => ({ default: module.ContractsManagementPanel })))
 const BillingManagementPanel = lazy(() => import('./features/billing/BillingManagementPanel').then((module) => ({ default: module.BillingManagementPanel })))
+const ExpensesManagementPanel = lazy(() => import('./features/expenses/ExpensesManagementPanel').then((module) => ({ default: module.ExpensesManagementPanel })))
+const ExpenseEditor = lazy(() => import('./features/expenses/ExpenseEditor').then((module) => ({ default: module.ExpenseEditor })))
 
 function authenticationErrorMessage(error: AuthError, fallback: string) {
   if (error.status === 0) {
@@ -535,6 +537,9 @@ type WorkspacePageProps = Readonly<{
   fullPageWorkflowOpen: boolean
   onPageChange: (page: Page) => void
   onFullPageChange: (open: boolean) => void
+  expenseProperty: PropertyRow | null
+  onCancelExpense: () => void
+  onExpenseSaved: () => void
 }>
 
 const workspacePages: Record<Page, { label: string; symbol: string; description: string }> = {
@@ -545,6 +550,7 @@ const workspacePages: Record<Page, { label: string; symbol: string; description:
   tenants: { label: 'Locatari', symbol: '♧', description: 'Consulta i Locatari collegati agli immobili che gestisci.' },
   documents: { label: 'Documenti', symbol: '▧', description: 'Allega e consulta i documenti dei Proprietari, degli immobili, dei Locatari e dei contratti.' },
   billing: { label: 'Canoni e incassi', symbol: '€', description: 'Consulta rate, residui e incassi del tuo patrimonio.' },
+  expenses: { label: 'Spese', symbol: '−', description: 'Consulta e registra le spese degli immobili nel tuo perimetro.' },
 }
 
 function WorkspaceNavigationButton({ page, activePage, count, onPageChange }: Readonly<{
@@ -593,6 +599,7 @@ function WorkspaceSidebar({ page, propertyCount, open, onToggle, onPageChange }:
         <div className="nav-divider" />
         <span className="nav-section-label">OPERATIVITÀ</span>
         <WorkspaceNavigationButton page="billing" activePage={page} onPageChange={onPageChange} />
+        <WorkspaceNavigationButton page="expenses" activePage={page} onPageChange={onPageChange} />
         <WorkspaceNavigationButton page="documents" activePage={page} onPageChange={onPageChange} />
         {unavailableSections.map((section) => (
           <div className="nav-item nav-item-disabled" key={section}>
@@ -787,6 +794,12 @@ function WorkspacePropertyList({ page, data, workflow }: Readonly<{
 
 function WorkspaceFeaturePage({ page, data, workflow, onPageChange, onFullPageChange }: WorkspacePageProps) {
   switch (page) {
+    case 'expenses':
+      return (
+        <Suspense fallback={<LoadingScreen label="Caricamento Spese..." />}>
+          <ExpensesManagementPanel userId={data.userId} onFullPageChange={onFullPageChange} />
+        </Suspense>
+      )
     case 'billing':
       return (
         <Suspense fallback={<LoadingScreen label="Caricamento Canoni e incassi..." />}>
@@ -819,6 +832,11 @@ function WorkspaceFeaturePage({ page, data, workflow, onPageChange, onFullPageCh
 
 function WorkspacePage(props: WorkspacePageProps) {
   const { page, data, workflow, fullPageWorkflowOpen } = props
+  if (props.expenseProperty) return (
+    <Suspense fallback={<LoadingScreen label="Caricamento nuova spesa..." />}>
+      <ExpenseEditor initialProperty={{ ...props.expenseProperty, can_manage: true }} userId={data.userId} onCancel={props.onCancelExpense} onSaved={props.onExpenseSaved} />
+    </Suspense>
+  )
   if (workflow.editorMode) return <WorkspacePropertyEditor data={data} workflow={workflow} />
   return (
     <>
@@ -845,6 +863,7 @@ function Workspace({ email, userId, initialName, onSignOut }: Readonly<{
 }>) {
   const [page, setPage] = useState<Page>('overview')
   const [fullPageWorkflowOpen, setFullPageWorkflowOpen] = useState(false)
+  const [expenseProperty, setExpenseProperty] = useState<PropertyRow | null>(null)
   const [signOutError, setSignOutError] = useState('')
   const [sidebarOpen, setSidebarOpen] = useState(() => window.matchMedia('(min-width: 761px)').matches)
   const data = useWorkspaceData(userId, initialName)
@@ -863,7 +882,7 @@ function Workspace({ email, userId, initialName, onSignOut }: Readonly<{
           propertyCount={data.properties.length}
           open={sidebarOpen}
           onToggle={() => setSidebarOpen((open) => !open)}
-          onPageChange={setPage}
+          onPageChange={(nextPage) => { setExpenseProperty(null); setPage(nextPage) }}
         />
         <div className="main-column">
           <WorkspaceTopbar
@@ -875,7 +894,7 @@ function Workspace({ email, userId, initialName, onSignOut }: Readonly<{
             onOpenSidebar={() => setSidebarOpen(true)}
             onSignOut={handleSignOut}
           />
-          <main className={`page-content${workflow.editorMode || fullPageWorkflowOpen ? ' page-content-full' : ''}`}>
+          <main className={`page-content${workflow.editorMode || fullPageWorkflowOpen || expenseProperty ? ' page-content-full' : ''}`}>
             {data.referenceCatalog.error && (
               <div className="inline-error" role="alert">
                 <span>{data.referenceCatalog.error}</span>
@@ -889,6 +908,15 @@ function Workspace({ email, userId, initialName, onSignOut }: Readonly<{
               fullPageWorkflowOpen={fullPageWorkflowOpen}
               onPageChange={setPage}
               onFullPageChange={setFullPageWorkflowOpen}
+              expenseProperty={expenseProperty}
+              onCancelExpense={() => {
+                workflow.setSelectedProperty(expenseProperty)
+                setExpenseProperty(null)
+              }}
+              onExpenseSaved={() => {
+                setExpenseProperty(null)
+                setPage('expenses')
+              }}
             />
           </main>
         </div>
@@ -898,6 +926,10 @@ function Workspace({ email, userId, initialName, onSignOut }: Readonly<{
               manageableOwners={data.manageableOwners}
               onClose={() => workflow.setSelectedProperty(null)}
               onEdit={() => workflow.setEditorMode('edit')}
+              onAddExpense={() => {
+                setExpenseProperty(workflow.selectedProperty)
+                workflow.setSelectedProperty(null)
+              }}
               property={workflow.selectedProperty}
             />
           </Suspense>

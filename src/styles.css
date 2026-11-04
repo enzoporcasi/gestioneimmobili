@@ -631,6 +631,10 @@ button.nav-item:hover,
 .billing-note { min-width: 140px; max-width: 300px; white-space: normal; overflow-wrap: anywhere; }
 .billing-detail .detail-section { margin-top: 28px; }
 .billing-workspace .table-scroll { border-top: 1px solid var(--line); }
+.expense-workspace .table-scroll { border-top: 1px solid var(--line); }
+.expense-workspace h2 { font-size: 18px; letter-spacing: 0; }
+.expense-payment-toggle { display: flex; align-items: center; gap: 10px; margin: 20px 0; font-size: 13px; }
+.expense-payment-toggle input { width: 18px; height: 18px; flex: 0 0 18px; }
 
 .contact-editor-form {
   max-width: 1000px;

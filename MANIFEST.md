@@ -23,6 +23,8 @@ The exact file names and an as-built function inventory are maintained in `READM
 - The Canoni e incassi frontend provides server-filtered/paginated installment and receipt lists, a full-page installment detail, receipt history and Manager-only partial/full payments through the mandatory-idempotency-key RPC. Pending requests survive a tab refresh using session storage; Viewers remain read-only.
 - `20261104100000_billing_workspace.sql` adds three RLS-preserving `security_invoker` views and Manager-scoped manual generation of matured installments for one active contract. Automated scheduling, reversals, write-offs and exports remain out of scope.
 - Contract termination and expense creation with allocations, including the optional first payment.
+- A dedicated Spese menu provides a filtered/paginated expense inventory and allocation/payment detail. The same full-page editor is available from the menu with property selection and from property detail with a fixed property. It supports ownership-based allocation and an optional first payment, with session-persisted idempotent retries; Viewers remain read-only.
+- `20261104110000_expenses_workspace.sql` adds RLS-preserving expense views and the partial-payment status catalog entry. Manual allocation UI, portions, expense attachments, later payments, editing/cancellation and dashboard changes are outside this first expense UI.
 - Document reservation/finalization, scan-result transition and authorized signed-download flow; malware scanning itself is external.
 - The web client supports property list/detail/create/edit; creation applies the property and its complete ownership shares atomically.
 - Owner registration supports natural persons and legal entities; the creator receives scoped administrator access atomically.
@@ -37,6 +39,7 @@ The exact file names and an as-built function inventory are maintained in `READM
 - SQL smoke/integration tests cover schema, due dates, constraints, RLS isolation, billing, payments, contract termination, expenses, property-management RPCs and document security.
 - Node scripts cover Storage upload, document-download URL flows and email confirmation.
 - `020_billing_workspace.sql` covers scoped generation, idempotent payments, balances/history and Viewer/cross-user authorization. `021_billing_validation.mjs` covers payment amounts and pending-request validation. Both run through the existing test discovery.
+- `022_expenses_workspace.sql` covers expense creation/replay, partial first payment, allocations and cross-user/Viewer permissions. `023_expense_draft_validation.mjs` covers pending-request restoration. Both use the existing test discovery.
 - `supabase/tests/019_email_confirmation_e2e.mjs` verifies signup without a session, login denial before confirmation, local email delivery, resend/rate-limit handling, activation, profile access and single-use links, then removes its temporary user and messages. This flow passed locally on 2026-11-04; hosted SMTP delivery and the complete suite are not certified by that result.
 - `scripts/run-all-tests.ps1` runs the migrations/reset and SQL/Node suites against local Supabase.
 - Test execution status is not inferred from the presence of these files; use the runner and record its actual result.
